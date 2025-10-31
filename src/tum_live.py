@@ -2,14 +2,16 @@ import argparse
 import os
 import re
 from time import sleep
+from typing import Dict, List, Tuple
 
 from selenium import webdriver
+from selenium.webdriver.firefox.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 
 import util
 
 
-def login(tum_username: str | None, tum_password: str | None) -> webdriver:
+def login(tum_username: str, tum_password: str) -> WebDriver:
     driver_options = webdriver.FirefoxOptions()
     if str(os.getenv('HEADLESS', 'true')) in ("1", "true", "yes", "on"):
         driver_options.add_argument("--headless")
@@ -17,7 +19,7 @@ def login(tum_username: str | None, tum_password: str | None) -> webdriver:
         driver_options.add_argument("--no-sandbox")
     driver = webdriver.Firefox(options=driver_options)
 
-    if tum_username:
+    if tum_username and tum_password:
         driver.get("https://live.rbg.tum.de/login")
         driver.find_element(By.XPATH, "/html/body/main/section/article/div/button").click()
         driver.find_element(By.ID, "username").send_keys(tum_username)
@@ -31,12 +33,12 @@ def login(tum_username: str | None, tum_password: str | None) -> webdriver:
     return driver
 
 
-def get_video_links_of_subject(driver: webdriver, subjects_identifier, camera_type) -> [(str, str)]:
+def get_video_links_of_subject(driver: WebDriver, subjects_identifier: str, camera_type: str) -> List[Tuple[str, str]]:
     subject_url = "https://live.rbg.tum.de/old/course/" + subjects_identifier
     driver.get(subject_url)
 
     links_on_page = driver.find_elements(By.XPATH, ".//a")
-    video_urls: [str] = []
+    video_urls: List[str] = []
     for link in links_on_page:
         link_url = link.get_attribute("href")
         if link_url and "https://live.rbg.tum.de/w/" in link_url:
@@ -49,7 +51,7 @@ def get_video_links_of_subject(driver: webdriver, subjects_identifier, camera_ty
 
     sort_order = driver.find_element(By.ID, "sort_order_button").text
 
-    video_playlists: [(str, str)] = []
+    video_playlists: List[Tuple[str, str]] = []
     for video_url in video_urls:
         driver.get(video_url + "/" + camera_type)
         sleep(2)
@@ -72,8 +74,8 @@ def get_playlist_url(source: str) -> str:
     return playlist_url
 
 
-def get_subjects(subjects: dict[str, (str, str)], tum_username: str | None, tum_password: str | None,
-                 queue: dict[str, [(str, str)]]):
+def get_subjects(subjects: Dict[str, Tuple[str, str]], tum_username: str, tum_password: str,
+                 queue: Dict[str, List[Tuple[str, str]]]):
     driver = login(tum_username, tum_password)
     for subject_name, (subjects_identifier, camera_type) in subjects.items():
         m3u8_playlists = get_video_links_of_subject(driver, subjects_identifier, camera_type)

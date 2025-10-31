@@ -229,4 +229,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    if len(sys.argv) > 1:
+        main()  # Run CLI version if arguments are provided
+    else:
+        from gui import main as gui_main
+        gui_main()  # Run GUI version if no arguments
