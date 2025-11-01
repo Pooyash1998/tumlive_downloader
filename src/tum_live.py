@@ -1,15 +1,15 @@
-import argparse
-import os
-import re
 from time import sleep
 from typing import Dict, List, Tuple
-
 from selenium import webdriver
 from selenium.webdriver.firefox.webdriver import WebDriver
 from selenium.webdriver.common.by import By
-
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+import argparse
+import os
+import re
 import util
-
 
 def login(tum_username: str, tum_password: str) -> WebDriver:
     driver_options = webdriver.FirefoxOptions()
@@ -29,15 +29,51 @@ def login(tum_username: str, tum_password: str) -> WebDriver:
         if "Couldn't log in. Please double check your credentials." in driver.page_source:
             driver.close()
             raise argparse.ArgumentTypeError("Username or password incorrect")
-    driver.get("https://live.rbg.tum.de/old/")
+    driver.get("https://live.rbg.tum.de/")
     return driver
 
+def get_courses(tum_username: str, tum_password: str, queue: Dict[str, List[Tuple[str, str]]]):
+    driver = login(tum_username, tum_password)
+    courses = [] 
+    try:
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "my-courses"))
+        )
+    except TimeoutException:
+        print("No 'My Courses' section found.")
+        return courses  # empty list
+    
+    try:
+        section = driver.find_element(By.ID, "my-courses")
+        course_links = section.find_elements(By.CSS_SELECTOR, "a.title")
+        print(f"Found {len(course_links)} courses in 'My Courses'.")
 
-def get_video_links_of_subject(driver: WebDriver, subjects_identifier: str, camera_type: str) -> List[Tuple[str, str]]:
-    subject_url = "https://live.rbg.tum.de/old/course/" + subjects_identifier
-    driver.get(subject_url)
+        for a in course_links:
+            try:
+                name = a.text.strip()
+                href = a.get_attribute("href")
+                if name and href:
+                    # Some hrefs are relative (like '?year=2025...'), prepending base URL
+                    if href.startswith("?") or href.startswith("/"):
+                        href = f"https://live.rbg.tum.de{href}"
+                    courses.append((name, href))
+            except Exception as e:
+                print(f"Skipping a course due to parse error: {e}")
+    except NoSuchElementException:
+        print("'My Courses' section missing or structure changed.")
+    return courses
 
-    links_on_page = driver.find_elements(By.XPATH, ".//a")
+def get_course_lectures(driver: WebDriver, course_url: str) -> List[Tuple[str, str]]:
+    """Open a course page and return [(lecture_title, lecture_url), ...]"""
+    
+
+def get_subjects(driver: WebDriver) -> List[Tuple[str, str]]:
+    links_on_page = driver.find_elements(By.XPATH, '//*[@id="my-courses"]/article/section[1]/a')
+    
+
+
+
+
     video_urls: List[str] = []
     for link in links_on_page:
         link_url = link.get_attribute("href")
@@ -74,12 +110,3 @@ def get_playlist_url(source: str) -> str:
     return playlist_url
 
 
-def get_subjects(subjects: Dict[str, Tuple[str, str]], tum_username: str, tum_password: str,
-                 queue: Dict[str, List[Tuple[str, str]]]):
-    driver = login(tum_username, tum_password)
-    for subject_name, (subjects_identifier, camera_type) in subjects.items():
-        m3u8_playlists = get_video_links_of_subject(driver, subjects_identifier, camera_type)
-        m3u8_playlists = util.enumerate_list(m3u8_playlists)
-        print(f'Found {len(m3u8_playlists)} videos for "{subject_name}"')
-        queue[subject_name] = m3u8_playlists
-    driver.close()

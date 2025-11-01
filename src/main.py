@@ -3,52 +3,23 @@ import os
 import tempfile
 from multiprocessing import Semaphore
 from pathlib import Path
-
 import yaml
-
 import downloader
-import panopto
 import tum_live
 
 
-def parse_tum_live_subject(s: str) -> (str, str, str):
-    try:
-        a, b, c = s.split(':')
-        if c and (c != "COMB" and c != "PRES" and c != "CAM"):
-            raise argparse.ArgumentTypeError("Camera type must be \"COMB\", \"PRES\" or \"CAM\"")
-        return a, b, c
-    except ValueError:
-        raise argparse.ArgumentTypeError("Subjects must be in the form: subject_name:subject_identifier:camera_type")
-
-
-def parse_tum_live_subject_identifier(s: str) -> (str, str):
-    try:
-        a, b = s.split(':')
-        if b and (b != "COMB" and b != "PRES" and b != "CAM"):
-            raise argparse.ArgumentTypeError("Camera type must be \"COMB\", \"PRES\" or \"CAM\"")
-        return a, b
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            "Subjects must be in the form: \"Subject Name\": \"subject_identifier:camera_type\"")
-
-
-def parse_tum_panopto_folder(s: str) -> (str, str):
-    try:
-        a, b = s.split(':')
-        return a, b
-    except ValueError:
-        raise argparse.ArgumentTypeError("Panopto folders must be in the form: subject_name:panopto_folder_id")
-
+def load_config_file(args: argparse.Namespace):
+    cfg = {}
+    if args.config_file:
+        if not os.path.isfile(args.config_file):
+            raise argparse.ArgumentTypeError("The supplied CONFIG_FILE does not exist.")
+        with open(args.config_file, "r") as config_file:
+            cfg = yaml.load(config_file, Loader=yaml.SafeLoader)
+    return cfg
 
 def parse_command_line_arguments():
+    # Command line arguments take priority over config file !!
     parser = argparse.ArgumentParser(description="Download and jump-cut TUM-Lecture-Videos")
-    parser.add_argument("--tum_live",
-                        help="List of TUM-live subjects in the form: subject_name:course_signature:camera_view",
-                        type=parse_tum_live_subject, nargs='+')
-    parser.add_argument("--panopto",
-                        help="List of TUM-Panopto folders in the form: subject_name:panopto_folder_id",
-                        type=parse_tum_panopto_folder, nargs='+')
-
     parser.add_argument("-u", "--username", help="TUM-Username (go42tum)", type=str)
     parser.add_argument("-p", "--password", help="TUM-Password (must fit to the TUM-Username)", type=str)
 
@@ -64,32 +35,20 @@ def parse_command_line_arguments():
 
     parser.add_argument("-d", "--maximum_parallel_downloads", type=int,
                         help="Maximal number of videos to download and convert in parallel. Defaults to 3. Optional.")
-
     parser.add_argument("-c", "--config_file", type=Path,
                         help="Path to a config file. Command line arguments take priority over config file. Optional.")
     return parser.parse_args()
 
-
-def load_config_file(args: argparse.Namespace):
-    cfg = {}
-    if args.config_file:
-        if not os.path.isfile(args.config_file):
-            raise argparse.ArgumentTypeError("The supplied CONFIG_FILE does not exist.")
-        with open(args.config_file, "r") as config_file:
-            cfg = yaml.load(config_file, Loader=yaml.SafeLoader)
-    return cfg
-
-
 def parse_destination_folder(args: argparse.Namespace, cfg) -> Path:
     destination_folder_path = None
-    if 'Output-Folder' in cfg:
-        destination_folder_path = Path(cfg['Output-Folder'])
     if args.output_folder:
         destination_folder_path = args.output_folder
-    if not os.path.isdir(destination_folder_path):
-        raise argparse.ArgumentTypeError("The supplied OUTPUT_FOLDER is invalid")
-    return destination_folder_path
+    elif 'Output-Folder' in cfg: 
+        destination_folder_path = Path(cfg['Output-Folder'])
 
+    if not destination_folder_path or not Path(destination_folder_path).is_dir():
+        raise argparse.ArgumentTypeError("The supplied OUTPUT_FOLDER is invalid")
+    return Path(destination_folder_path)
 
 def parse_tmp_folder(args: argparse.Namespace, cfg) -> Path:
     tmp_directory = None
@@ -105,24 +64,13 @@ def parse_tmp_folder(args: argparse.Namespace, cfg) -> Path:
         os.mkdir(tmp_directory)  # create temporary work-directory if it does not exist
     return tmp_directory
 
-
 def parse_tum_live_subjects(args: argparse.Namespace, cfg) -> dict[str, (str, str)]:
     tum_live_subjects: dict[str, (str, str)] = {}
-    if 'TUM-live' in cfg:
-        tum_live_subjects.update(
-            {key: parse_tum_live_subject_identifier(value) for key, value in cfg['TUM-live'].items()})
+    tum_live_subjects.update(
+        {key: parse_tum_live_subject_identifier(value) for key, value in cfg['TUM-live'].items()})
     if args.tum_live:
         tum_live_subjects.update({a: (b, c) for a, b, c in args.tum_live})
     return tum_live_subjects
-
-
-def parse_panopto_folders(args: argparse.Namespace, cfg) -> dict[str, str]:
-    panopto_folders: dict[str, str] = {}
-    if 'Panopto' in cfg:
-        panopto_folders.update(cfg['Panopto'])
-    if args.panopto:
-        panopto_folders.update({a: b for a, b in args.panopto})
-    return panopto_folders
 
 
 def parse_keep_original_and_jump_cut(args: argparse.Namespace, cfg) -> (bool, bool):
@@ -165,8 +113,6 @@ def parse_arguments():
     cfg = load_config_file(args)
 
     tum_live_subjects = parse_tum_live_subjects(args, cfg)
-    panopto_folders = parse_panopto_folders(args, cfg)
-
     (keep_original, jump_cut) = parse_keep_original_and_jump_cut(args, cfg)
 
     destination_folder_path = parse_destination_folder(args, cfg)
@@ -176,7 +122,7 @@ def parse_arguments():
 
     (username, password) = parse_username_password(args, cfg)
 
-    return tum_live_subjects, panopto_folders, \
+    return tum_live_subjects, \
         keep_original, jump_cut, \
         destination_folder_path, tmp_folder_path, \
         semaphore, \
@@ -189,7 +135,6 @@ def main():
 
     # Parse arguments
     tum_live_subjects, \
-        panopto_folders, \
         keep_original, \
         jump_cut, \
         destination_folder_path, \
@@ -204,14 +149,8 @@ def main():
     videos_for_subject: dict[str, [(str, str)]] = {}
 
     # Scrape TUM-live videos
-    if tum_live_subjects:
-        print("\nScanning TUM-live:")
-        tum_live.get_subjects(tum_live_subjects, username, password, videos_for_subject)
-
-    # Scrape Panopto videos
-    if panopto_folders:
-        print("\nScanning Panopto:")
-        panopto.get_folders(panopto_folders, username, password, videos_for_subject)
+    print("\nScanning TUM-live:")
+    tum_live.get_subjects(tum_live_subjects, username, password, videos_for_subject)
 
     # Download videos
     print("\n--------------------\n")
