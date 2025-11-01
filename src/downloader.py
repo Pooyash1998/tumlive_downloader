@@ -5,6 +5,10 @@ import sys
 import time
 from multiprocessing import Process, Semaphore
 from pathlib import Path
+import m3u8
+from concurrent.futures import ThreadPoolExecutor
+import requests
+from urllib.parse import urljoin
 
 
 def download_list_of_videos(videos: list[tuple[str, str]],
@@ -36,18 +40,47 @@ def download(filename: str, playlist_url: str,
              output_file_path: Path, output_file_path_jc: Path, tmp_directory: Path,
              keep_original: bool, jump_cut: bool,
              semaphore: Semaphore):
+    
     print(f"Download of {filename} started")
     semaphore.acquire()  # Acquire lock
     download_start_time = time.time()  # Track download time
+    
     temporary_path = Path(tmp_directory, filename + ".original")  # Download location
+    # --- Phase 1: we parse the playlist and download its .ts segments in parallel ---
+    try:
+        playlist = m3u8.load(playlist_url)
+        ts_urls = [urljoin(playlist_url, seg.uri) if not seg.uri.startswith("http") else seg.uri
+                   for seg in playlist.segments]
+        ts_folder = Path(tmp_directory, f"{filename}_ts")
+        ts_folder.mkdir(parents=True, exist_ok=True)
+        def download_ts(ts_url, index):
+            ts_path = ts_folder / f"{index:05d}.ts"
+            if not ts_path.exists():
+                r = requests.get(ts_url, stream=True)
+                with open(ts_path, "wb") as f:
+                    for chunk in r.iter_content(1024*1024):
+                        f.write(chunk)
+            return ts_path
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            segment_paths = list(executor.map(download_ts, ts_urls, range(len(ts_urls))))
+    except Exception as e:
+        print(f"Failed to download segments for {filename}: {e}", file=sys.stderr)
+        semaphore.release()
+        return
+    # --- Phase w: now merge the segments with ffmpeg locally ---
+    list_file = ts_folder / "segments.txt"
+    with open(list_file, "w") as f:
+        for ts_path in sorted(segment_paths):
+            f.write(f"file '{ts_path.as_posix()}'\n")
+
     ffmpeg = subprocess.run([
         'ffmpeg',
         '-y',  # Overwrite output file if it already exists
         '-hwaccel', 'auto',  # Hardware acceleration
-        '-i', playlist_url,  # Input file
+        '-i', list_file.as_posix(),  # Input file
         '-c', 'copy',  # Codec name
         '-f', 'mp4',  # Force mp4 as output file format
-        temporary_path  # Output file
+        temporary_path.as_posix()  # Output file
     ], capture_output=True)
 
     if ffmpeg.returncode != 0:  # Print debug output in case of error
@@ -73,7 +106,6 @@ def download(filename: str, playlist_url: str,
         print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
 
         semaphore.release()  # Release lock
-
 
 def cut_video(filename: str, playlist_url: str,
               output_file_path: Path, output_file_path_jc: Path, input_path: Path,
