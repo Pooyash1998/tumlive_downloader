@@ -60,6 +60,9 @@ def get_courses(tum_username: str, tum_password: str) -> tuple[WebDriver, List[t
                 print(f"Skipping a course due to parse error: {e}")
     except NoSuchElementException:
         print("'My Courses' section missing or structure changed.")
+    
+    course_names_only= [course[0] for course in courses]
+    print('\n'.join(course_names_only))
     return (driver,courses)
 
 def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[str, List[tuple[str, str]]]:
@@ -112,5 +115,3 @@ def get_playlist_url(driver : WebDriver, lectures: Dict[str, List[tuple[str, str
             updated_lectures[course_name].append((lecture_name, m3u8_url))
 
     return updated_lectures
-
-

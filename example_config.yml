@@ -1,6 +1,6 @@
 TUM-live:
-  "IT-Sec": "2021/W/it-sec:COMB"
-  "NumProg": "2021/W/NumProg:COMB"
+  "ML": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ML&view=3"
+  "IDL": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ItDL&view=3"
 
 Username: "go42tum"
 Password: "hunter2"
@@ -8,6 +8,6 @@ Password: "hunter2"
 Keep-Original-File: true
 Jumpcut: true
 
-Output-Folder: "/app/output"
+Output-Folder: "/output"
 
 Maximum-Parallel-Downloads: 3

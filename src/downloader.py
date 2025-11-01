@@ -9,6 +9,13 @@ import m3u8
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from urllib.parse import urljoin
+import logging
+from threading import Lock
+from datetime import datetime
+
+def log(msg: str):
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}", flush=True)
 
 
 def download_list_of_videos(videos: list[tuple[str, str]],
@@ -44,8 +51,6 @@ def download(filename: str, playlist_url: str,
     print(f"Download of {filename} started")
     semaphore.acquire()  # Acquire lock
     download_start_time = time.time()  # Track download time
-    
-    temporary_path = Path(tmp_directory, filename + ".original")  # Download location
     # --- Phase 1: we parse the playlist and download its .ts segments in parallel ---
     try:
         playlist = m3u8.load(playlist_url)
@@ -53,58 +58,74 @@ def download(filename: str, playlist_url: str,
                    for seg in playlist.segments]
         ts_folder = Path(tmp_directory, f"{filename}_ts")
         ts_folder.mkdir(parents=True, exist_ok=True)
+
+        downloaded_segments = 0
+        lock = Lock()
         def download_ts(ts_url, index):
+            nonlocal downloaded_segments
             ts_path = ts_folder / f"{index:05d}.ts"
             if not ts_path.exists():
                 r = requests.get(ts_url, stream=True)
                 with open(ts_path, "wb") as f:
                     for chunk in r.iter_content(1024*1024):
-                        f.write(chunk)
+                        if chunk:
+                            f.write(chunk)
+            with lock:
+                downloaded_segments += 1
+                percent = downloaded_segments * 100 // len(ts_urls)
+                if percent % 25 == 0 or downloaded_segments == len(ts_urls):
+                    log(f"[{filename}] segment {downloaded_segments}/{len(ts_urls)} - {percent}% done")
             return ts_path
+        
         with ThreadPoolExecutor(max_workers=8) as executor:
             segment_paths = list(executor.map(download_ts, ts_urls, range(len(ts_urls))))
     except Exception as e:
         print(f"Failed to download segments for {filename}: {e}", file=sys.stderr)
         semaphore.release()
         return
-    # --- Phase w: now merge the segments with ffmpeg locally ---
+    # --- Phase 2: now merge the segments with ffmpeg locally ---
+    temporary_file_path = Path(ts_folder, filename)  # Download location
     list_file = ts_folder / "segments.txt"
     with open(list_file, "w") as f:
         for ts_path in sorted(segment_paths):
-            f.write(f"file '{ts_path.as_posix()}'\n")
+            f.write(f"file '{ts_path.name}'\n")
 
     ffmpeg = subprocess.run([
         'ffmpeg',
         '-y',  # Overwrite output file if it already exists
+        '-f', 'concat',
+        '-safe', '0',
+        '-protocol_whitelist', 'file,http,https,tcp,tls',
         '-hwaccel', 'auto',  # Hardware acceleration
-        '-i', list_file.as_posix(),  # Input file
+        '-i',  'segments.txt',  # Input file
         '-c', 'copy',  # Codec name
-        '-f', 'mp4',  # Force mp4 as output file format
-        temporary_path.as_posix()  # Output file
-    ], capture_output=True)
+        '-movflags', '+faststart',  # optional, improves mp4 playback
+        filename  # Output file
+    ], cwd=ts_folder, capture_output=True)
 
     if ffmpeg.returncode != 0:  # Print debug output in case of error
         print(f"Error during download of \"{filename}\" with ffmpeg:", file=sys.stderr)
         print(f"Playlist file: {playlist_url}", file=sys.stderr)
-        print(f"Designated download location: {temporary_path}", file=sys.stderr)
+        print(f"Designated download location: {temporary_file_path}", file=sys.stderr)
         print(f"Designated output location: {output_file_path}", file=sys.stderr)
         print(f"Output of ffmpeg to stdout:\n{ffmpeg.stdout.decode('utf-8')}", file=sys.stderr)
         print(f"Output of ffmpeg to stderr:\n{ffmpeg.stderr.decode('utf-8')}", file=sys.stderr)
         return
 
     print(f"Download of {filename} completed after {(time.time() - download_start_time):.0f}s")
+    log(f"Completed {filename} in {(time.time() - download_start_time):.1f}s "
+    f"({len(segment_paths)} segments)")
     if keep_original:
-        shutil.copy2(temporary_path, output_file_path)  # Copy original file to output location
+        shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location
     if jump_cut:
         cut_video(filename, playlist_url,
-                  output_file_path, output_file_path_jc, temporary_path,
+                  output_file_path, output_file_path_jc, temporary_file_path,
                   download_start_time,
                   semaphore)
     else:
-        temporary_path.unlink()  # Delete original file
+        temporary_file_path.unlink()  # Delete original file
         Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
         print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
-
         semaphore.release()  # Release lock
 
 def cut_video(filename: str, playlist_url: str,
@@ -118,7 +139,6 @@ def cut_video(filename: str, playlist_url: str,
         input_path,  # Input file
         '--silent_speed', '8',  # Speed multiplier while there is no audio
         '--video_codec', 'h264',  # Video codec
-        '--video-bitrate', 'unset',  # Automatic bitrate
         '--no_open',  # Don't open the finished file
         '-o', output_file_path_jc  # Output file
     ], capture_output=True)

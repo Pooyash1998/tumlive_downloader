@@ -1,6 +1,7 @@
 import argparse
 import os
 import tempfile
+from typing import List
 from multiprocessing import Semaphore
 from pathlib import Path
 import yaml
@@ -46,9 +47,12 @@ def parse_destination_folder(args: argparse.Namespace, cfg) -> Path:
     elif 'Output-Folder' in cfg: 
         destination_folder_path = Path(cfg['Output-Folder'])
 
-    if not destination_folder_path or not Path(destination_folder_path).is_dir():
+    if not destination_folder_path:
         raise argparse.ArgumentTypeError("The supplied OUTPUT_FOLDER is invalid")
-    return Path(destination_folder_path)
+    destination_folder_path = Path(destination_folder_path)
+    if not destination_folder_path.is_dir():
+        destination_folder_path.mkdir(exist_ok=True)  # create the directory anyway
+    return destination_folder_path
 
 def parse_tmp_folder(args: argparse.Namespace, cfg) -> Path:
     tmp_directory = None
@@ -64,16 +68,11 @@ def parse_tmp_folder(args: argparse.Namespace, cfg) -> Path:
         os.mkdir(tmp_directory)  # create temporary work-directory if it does not exist
     return tmp_directory
 
-def parse_tum_live_subjects(args: argparse.Namespace, cfg) -> dict[str, (str, str)]:
-    tum_live_subjects: dict[str, (str, str)] = {}
-    tum_live_subjects.update(
-        {key: parse_tum_live_subject_identifier(value) for key, value in cfg['TUM-live'].items()})
-    if args.tum_live:
-        tum_live_subjects.update({a: (b, c) for a, b, c in args.tum_live})
-    return tum_live_subjects
+def parse_tum_live_subjects(cfg) -> List[tuple[str, str]]:
+    return list(cfg.get("TUM-live", {}).items()) 
 
 
-def parse_keep_original_and_jump_cut(args: argparse.Namespace, cfg) -> (bool, bool):
+def parse_keep_original_and_jump_cut(args: argparse.Namespace, cfg) -> tuple[bool, bool]:
     keep_original = True
     jump_cut = True
     if 'Keep-Original-File' in cfg:
@@ -112,7 +111,7 @@ def parse_arguments():
     args = parse_command_line_arguments()
     cfg = load_config_file(args)
 
-    tum_live_subjects = parse_tum_live_subjects(args, cfg)
+    tum_live_subjects = parse_tum_live_subjects(cfg)
     (keep_original, jump_cut) = parse_keep_original_and_jump_cut(args, cfg)
 
     destination_folder_path = parse_destination_folder(args, cfg)
@@ -145,18 +144,23 @@ def main():
 
     print("Starting new run!")
 
-    # subject_folder_name -> [(episode_name, playlist_m3u8_URL)]
-    videos_for_subject: dict[str, [(str, str)]] = {}
-
     # Scrape TUM-live videos
     print("\nScanning TUM-live:")
-    tum_live.get_subjects(tum_live_subjects, username, password, videos_for_subject)
+    if not tum_live_subjects :
+        driver, tum_live_subjects = tum_live.get_courses(username, password)
+    else:
+        course_names_only= [course[0] for course in tum_live_subjects]
+        print("Found following Courses in the Config:")
+        print('\n'.join(course_names_only))
+        driver = tum_live.login(username, password)
 
+    All_lectures_url = tum_live.get_lecture_urls (driver, tum_live_subjects)
+    All_lectures_m3u8 = tum_live.get_playlist_url (driver, All_lectures_url)
     # Download videos
     print("\n--------------------\n")
     print("Starting downloads:")
     spawned_child_processes = []
-    for subject, playlists in videos_for_subject.items():
+    for subject, playlists in All_lectures_m3u8.items():
         subject_folder = Path(destination_folder_path, subject)
         subject_folder.mkdir(exist_ok=True)
         spawned_child_processes += downloader.download_list_of_videos(playlists,
