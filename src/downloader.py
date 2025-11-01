@@ -7,7 +7,7 @@ from multiprocessing import Process, Semaphore
 from pathlib import Path
 
 
-def download_list_of_videos(videos: [(str, str)],
+def download_list_of_videos(videos: list[tuple[str, str]],
                             output_folder_path: Path, tmp_directory: Path,
                             keep_original: bool, jump_cut: bool,
                             semaphore: Semaphore) -> [Process]:

@@ -1,5 +1,5 @@
 from time import sleep
-from typing import Dict, List, Tuple
+from typing import Dict, List
 from selenium import webdriver
 from selenium.webdriver.firefox.webdriver import WebDriver
 from selenium.webdriver.common.by import By
@@ -9,7 +9,6 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import argparse
 import os
 import re
-import util
 
 def login(tum_username: str, tum_password: str) -> WebDriver:
     driver_options = webdriver.FirefoxOptions()
@@ -32,7 +31,7 @@ def login(tum_username: str, tum_password: str) -> WebDriver:
     driver.get("https://live.rbg.tum.de/")
     return driver
 
-def get_courses(tum_username: str, tum_password: str, queue: Dict[str, List[Tuple[str, str]]]):
+def get_courses(tum_username: str, tum_password: str) -> tuple[WebDriver, List[tuple[str, str]]]:
     driver = login(tum_username, tum_password)
     courses = [] 
     try:
@@ -41,7 +40,7 @@ def get_courses(tum_username: str, tum_password: str, queue: Dict[str, List[Tupl
         )
     except TimeoutException:
         print("No 'My Courses' section found.")
-        return courses  # empty list
+        return (driver, courses)  # empty list
     
     try:
         section = driver.find_element(By.ID, "my-courses")
@@ -61,52 +60,57 @@ def get_courses(tum_username: str, tum_password: str, queue: Dict[str, List[Tupl
                 print(f"Skipping a course due to parse error: {e}")
     except NoSuchElementException:
         print("'My Courses' section missing or structure changed.")
-    return courses
+    return (driver,courses)
 
-def get_course_lectures(driver: WebDriver, course_url: str) -> List[Tuple[str, str]]:
-    """Open a course page and return [(lecture_title, lecture_url), ...]"""
-    
+def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[str, List[tuple[str, str]]]:
+    ''' return all lecture links for a all courses
+        {
+            "Course Name": [
+                (lecture_id, url),
+                ...
+            ],
+            ...
+        }
+    '''
+    lectures: Dict[str, List[tuple[str, str]]] = {}
+    for course_name, course_url in courses:
+        driver.get(course_url)
+        sleep(1)
+        page_html = driver.page_source
+        pattern = r'<a\s+[^>]*:href="course\.WatchURL\(vod\.ID\)"[^>]*href="(/w/[^"]+/(\d+))"'
+        matches = re.findall(pattern, page_html)
+        for href, vod_id in matches:
+            full_url = f"https://live.rbg.tum.de{href}"
+            lec_id= href.split('/')[-1].replace('"','')
+            lectures.setdefault(course_name, []).append((lec_id, full_url))
+    return lectures
 
-def get_subjects(driver: WebDriver) -> List[Tuple[str, str]]:
-    links_on_page = driver.find_elements(By.XPATH, '//*[@id="my-courses"]/article/section[1]/a')
-    
+def get_playlist_url(driver : WebDriver, lectures: Dict[str, List[tuple[str, str]]], stream_type: str = "COMB") -> Dict[str, List[tuple[str, str]]] :
+    # stream_type: "COMB", "CAM", or "PRES"
+    updated_lectures: Dict[str, List[tuple[str, str]]] = {}
+    for course_name, lec_list in lectures.items():
+        updated_lectures[course_name] = []
+        for lec_id, lec_url in lec_list:
+            if stream_type.upper() != "COMB":
+                url = f"{lec_url}/{stream_type.upper()}"
+            else: 
+                url = lec_url
+            driver.get(url)
+            sleep(1)
+            page_source = driver.page_source
+            # get the Lecture title 
+            title_match = re.search(r'<h1 [^>]*@titleupdate\.window[^>]*>(.*?)</h1>', page_source, re.DOTALL)
+            if title_match :
+                lecture_name = title_match.group(1).strip()
+            else :
+                lecture_name = lec_id  # fallback
+            # get the m3u8 playlist
+            m3u8_matches = re.findall(r'<source\s+src="([^"]+\.m3u8[^"]*)"', page_source)
+            if not m3u8_matches:
+                raise ValueError(f"No m3u8 found for {lecture_name}")
+            m3u8_url = m3u8_matches[0] # first match
+            updated_lectures[course_name].append((lecture_name, m3u8_url))
 
-
-
-
-    video_urls: List[str] = []
-    for link in links_on_page:
-        link_url = link.get_attribute("href")
-        if link_url and "https://live.rbg.tum.de/w/" in link_url:
-            video_urls.append(link_url)
-
-    video_urls = [url for url in video_urls if ("/CAM" not in url and "/PRES" not in url and "/chat" not in url)]
-    video_urls = list(dict.fromkeys(video_urls))  # deduplicate
-    if not video_urls:
-        return []  # Empty lecture series
-
-    sort_order = driver.find_element(By.ID, "sort_order_button").text
-
-    video_playlists: List[Tuple[str, str]] = []
-    for video_url in video_urls:
-        driver.get(video_url + "/" + camera_type)
-        sleep(2)
-        filename = driver.find_element(By.XPATH, "//h1").text.strip()
-        if not ("Starts in more than a day" or "Stream is due") in driver.page_source:
-            playlist_url = get_playlist_url(driver.page_source)
-            video_playlists.append((filename, playlist_url))
-
-    if "ASC" in sort_order:
-        video_playlists.reverse()
-
-    return video_playlists
-
-
-def get_playlist_url(source: str) -> str:
-    playlist_extracted_match = re.search(r"(https://\S+?/playlist\.m3u8.*?)[\'|\"]", source)
-    if not playlist_extracted_match:
-        raise Exception("Could not extract playlist URL from TUM-live! Page source:\n" + source)
-    playlist_url = playlist_extracted_match.group(1)
-    return playlist_url
+    return updated_lectures
 
 
