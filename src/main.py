@@ -12,9 +12,10 @@ import tum_live
 def load_config_file(args: argparse.Namespace):
     cfg = {}
     if args.config_file:
-        if not os.path.isfile(args.config_file):
+        config_file_path = Path("../",args.config_file)
+        if not os.path.isfile(config_file_path):
             raise argparse.ArgumentTypeError("The supplied CONFIG_FILE does not exist.")
-        with open(args.config_file, "r") as config_file:
+        with open(config_file_path, "r") as config_file:
             cfg = yaml.load(config_file, Loader=yaml.SafeLoader)
     return cfg
 
