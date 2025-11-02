@@ -138,10 +138,10 @@ You can also use this feature to perform partial downloads of a lecture series.
 Simply start the scraper, interrupt it after the `.lock` files are created,
 and delete only those `.lock` files corresponding to the videos you want to redownload.
 # TODO 
-- [ ] make sure tmp folder is removed after execution ends.
-- [ ] change .lock file logic to consider .ts segments.
+- [X] make sure tmp folder is removed after execution ends.
+- [X] change .lock file logic to consider .ts segments.
 - [ ] Improve GUI design and error reporting.
 - [ ] Add support for setting stream mode via arg or cfg.
 - [ ] Docker file.
 - [ ] tests for CLI and config parsing.
-- [ ] Show Progress instead of Logging messeages.
+- [X] Show Progress instead of Logging messeages.
