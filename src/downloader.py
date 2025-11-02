@@ -59,17 +59,15 @@ def download(filename: str, playlist_url: str,
         ts_folder = Path(tmp_directory, f"{filename}_ts")
         ts_folder.mkdir(parents=True, exist_ok=True)
 
-        downloaded_segments = 0
         lock = Lock()
         # Progress bar for each Lecture
         pbar = tqdm(total=len(ts_urls), desc=f"{filename}", position=0, leave=True, dynamic_ncols=True)
 
         def download_ts(ts_url, index):
-            nonlocal downloaded_segments
+            nonlocal pbar
             ts_path = ts_folder / f"{index:05d}.ts"
             if ts_path.exists():
                 with lock:
-                    downloaded_segments += 1
                     pbar.update(1)
                 return ts_path # Skip download if file already exists
             
@@ -83,7 +81,6 @@ def download(filename: str, playlist_url: str,
                             if chunk:
                                 f.write(chunk)
                     with lock:
-                        downloaded_segments += 1
                         pbar.update(1)
                     return ts_path # Success -> Exit loop
                 
