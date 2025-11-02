@@ -61,12 +61,10 @@ def parse_tmp_folder(args: argparse.Namespace, cfg) -> Path:
         tmp_directory = Path(cfg['Temp-Dir'])
     if args.temp_dir:
         tmp_directory = args.temp_dir
-    if tmp_directory and not os.path.isdir(tmp_directory):
-        raise argparse.ArgumentTypeError("The supplied TEMP_DIR is invalid")
     if not tmp_directory:
         tmp_directory = Path(tempfile.gettempdir(), "tum_video_scraper")  # default: (/tmp/tum_video_scraper/)
     if not os.path.isdir(tmp_directory):
-        os.mkdir(tmp_directory)  # create temporary work-directory if it does not exist
+        tmp_directory.mkdir(exist_ok=True)  # Create temporary work-directory if it does not exist
     return tmp_directory
 
 def parse_tum_live_subjects(cfg) -> List[tuple[str, str]]:
@@ -97,7 +95,7 @@ def parse_maximum_parallel_downloads(args: argparse.Namespace, cfg) -> Semaphore
     return Semaphore(maximum_parallel_downloads)
 
 
-def parse_username_password(args: argparse.Namespace, cfg) -> (str | None, str | None):
+def parse_username_password(args: argparse.Namespace, cfg) -> tuple[str | None, str | None]:
     username = args.username or cfg.get('Username')
     password = args.password or cfg.get('Password')
 
@@ -170,7 +168,6 @@ def main():
                                                                       semaphore)
     for process in spawned_child_processes:
         process.join()
-
 
 if __name__ == '__main__':
     import sys

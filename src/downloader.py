@@ -3,6 +3,7 @@ import shutil
 import subprocess
 import sys
 import time
+from tqdm import tqdm
 from multiprocessing import Process, Semaphore
 from pathlib import Path
 import m3u8
@@ -42,7 +43,6 @@ def download_list_of_videos(videos: list[tuple[str, str]],
             child_process_list.append(child_process)
     return child_process_list
 
-
 def download(filename: str, playlist_url: str,
              output_file_path: Path, output_file_path_jc: Path, tmp_directory: Path,
              keep_original: bool, jump_cut: bool,
@@ -61,28 +61,50 @@ def download(filename: str, playlist_url: str,
 
         downloaded_segments = 0
         lock = Lock()
+        # Progress bar for each Lecture
+        pbar = tqdm(total=len(ts_urls), desc=f"{filename}", position=0, leave=True, dynamic_ncols=True)
+
         def download_ts(ts_url, index):
             nonlocal downloaded_segments
             ts_path = ts_folder / f"{index:05d}.ts"
-            if not ts_path.exists():
-                r = requests.get(ts_url, stream=True)
-                with open(ts_path, "wb") as f:
-                    for chunk in r.iter_content(1024*1024):
-                        if chunk:
-                            f.write(chunk)
-            with lock:
-                downloaded_segments += 1
-                percent = downloaded_segments * 100 // len(ts_urls)
-                if percent % 25 == 0 or downloaded_segments == len(ts_urls):
-                    log(f"[{filename}] segment {downloaded_segments}/{len(ts_urls)} - {percent}% done")
-            return ts_path
+            if ts_path.exists():
+                with lock:
+                    downloaded_segments += 1
+                    pbar.update(1)
+                return ts_path # Skip download if file already exists
+            
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    r = requests.get(ts_url, stream=True, timeout=15)
+                    r.raise_for_status()
+                    with open(ts_path, "wb") as f:
+                        for chunk in r.iter_content(1024*1024):
+                            if chunk:
+                                f.write(chunk)
+                    with lock:
+                        downloaded_segments += 1
+                        pbar.update(1)
+                    return ts_path # Success -> Exit loop
+                
+                except Exception as e:
+                    print(f"[Retry {attempt + 1}/{max_retries}] Failed to download segment {ts_url}: {e}", file=sys.stderr)
+                    time.sleep(2 ** attempt)  # Exponential backoff
+            print(f"Failed to download segment {index} after {max_retries} failed attempts.", file=sys.stderr)
+            return None 
         
-        with ThreadPoolExecutor(max_workers=8) as executor:
+        with ThreadPoolExecutor(max_workers=16) as executor:
             segment_paths = list(executor.map(download_ts, ts_urls, range(len(ts_urls))))
+        segment_paths = [p for p in segment_paths if p is not None]
+        if len(segment_paths) < len(ts_urls):
+            missing = len(ts_urls) - len(segment_paths)
+            print(f"{missing} segments failed to download for {filename}.Delete the lock file and rerun the script to retry.", file=sys.stderr)
+    
     except Exception as e:
         print(f"Failed to download segments for {filename}: {e}", file=sys.stderr)
         semaphore.release()
         return
+    
     # --- Phase 2: now merge the segments with ffmpeg locally ---
     temporary_file_path = Path(ts_folder, filename)  # Download location
     list_file = ts_folder / "segments.txt"
@@ -115,23 +137,23 @@ def download(filename: str, playlist_url: str,
     print(f"Download of {filename} completed after {(time.time() - download_start_time):.0f}s")
     log(f"Completed {filename} in {(time.time() - download_start_time):.1f}s "
     f"({len(segment_paths)} segments)")
-    if keep_original:
-        shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location
+    shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location
+
     if jump_cut:
-        cut_video(filename, playlist_url,
-                  output_file_path, output_file_path_jc, temporary_file_path,
-                  download_start_time,
-                  semaphore)
+        cut_video(filename, playlist_url, output_file_path_jc, temporary_file_path)
+                  
     else:
-        temporary_file_path.unlink()  # Delete original file
-        Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
         print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
-        semaphore.release()  # Release lock
+    
+    if not keep_original:
+        output_file_path.unlink()
+    temporary_file_path.unlink()  # Delete temp file
+    Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
+    shutil.rmtree(ts_folder)  # Remove ts folder
+    semaphore.release()  # Release lock
 
 def cut_video(filename: str, playlist_url: str,
-              output_file_path: Path, output_file_path_jc: Path, input_path: Path,
-              download_start_time: float,
-              semaphore: Semaphore):
+              output_file_path_jc: Path, input_path: Path):
     print(f"Conversion of {filename} started")
     conversion_start_time = time.time()  # Track auto-editor time
     auto_editor = subprocess.run([
@@ -151,10 +173,6 @@ def cut_video(filename: str, playlist_url: str,
         print(f"Output of auto-editor to stdout:\n{auto_editor.stdout.decode('utf-8')}", file=sys.stderr)
         print(f"Output of auto-editor to stderr:\n{auto_editor.stderr.decode('utf-8')}", file=sys.stderr)
         return
-
+    
     print(f"Conversion of {filename} completed after {(time.time() - conversion_start_time):.0f}s")
-    input_path.unlink()  # Delete original file
-    Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
-    print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
-
-    semaphore.release()  # Release lock
+    return
