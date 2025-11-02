@@ -1,5 +1,4 @@
-[![TUM](https://custom-icon-badges.demolab.com/badge/TUM-exzellent-0065bd.svg?logo=tum_logo_2023)](https://www.tum.de/)  
-[![TUM-Live](https://custom-icon-badges.demolab.com/badge/TUM--Live-live-e5312b.svg?logo=tum_live_logo)](https://live.rbg.tum.de/)
+[![TUM](https://custom-icon-badges.demolab.com/badge/TUM-exzellent-0065bd.svg?logo=tum_logo_2023)](https://www.tum.de/) [![TUM-Live](https://custom-icon-badges.demolab.com/badge/TUM--Live-live-e5312b.svg?logo=tum_live_logo)](https://live.rbg.tum.de/)
 
 # About
 
@@ -36,7 +35,7 @@ If you want the config file to be used, specify it with:
 
 ```bash
 python3 main.py -c config.yml
-````
+```
 
 ---
 
@@ -138,3 +137,11 @@ You can safely delete them manually before restarting the scraper.
 You can also use this feature to perform partial downloads of a lecture series.
 Simply start the scraper, interrupt it after the `.lock` files are created,
 and delete only those `.lock` files corresponding to the videos you want to redownload.
+# TODO 
+- [ ] make sure tmp folder is removed after execution ends.
+- [ ] change .lock file logic to consider .ts segments.
+- [ ] Improve GUI design and error reporting.
+- [ ] Add support for setting stream mode via arg or cfg.
+- [ ] Docker file.
+- [ ] tests for CLI and config parsing.
+- [ ] Show Progress instead of Logging messeages.
