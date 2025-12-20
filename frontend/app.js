@@ -1,4 +1,4 @@
-const API_BASE = 'http://127.0.0.1:5000/api';
+const API_BASE = 'http://127.0.0.1:5001/api';
 
 let lectures = [];
 let selectedLectures = new Set();
@@ -19,13 +19,25 @@ async function loadConfig() {
             document.getElementById('savedUsername').textContent = config.username;
             document.getElementById('userAvatar').textContent = config.username[0].toUpperCase();
             document.getElementById('savedUserCard').style.display = 'block';
+            document.getElementById('manualLoginForm').style.display = 'none';
             document.getElementById('username').value = config.username;
+        } else {
+            document.getElementById('savedUserCard').style.display = 'none';
+            document.getElementById('manualLoginForm').style.display = 'block';
         }
         
         document.getElementById('outputDir').value = config.outputDir;
-        document.getElementById('maxDownloads').textContent = `Max parallel downloads: ${config.maxDownloads}`;
+        
+        // Set max parallel downloads
+        const maxDownloads = config.maxDownloads || 3;
+        document.getElementById('maxParallelSlider').value = maxDownloads;
+        document.getElementById('maxParallelDownloads').value = maxDownloads;
+        
     } catch (error) {
         console.error('Failed to load config:', error);
+        // Show manual login form if config fails
+        document.getElementById('savedUserCard').style.display = 'none';
+        document.getElementById('manualLoginForm').style.display = 'block';
     }
 }
 
@@ -36,6 +48,24 @@ function setupEventListeners() {
     document.getElementById('continueBtn')?.addEventListener('click', handleContinueLogin);
     document.getElementById('password').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleLogin();
+    });
+    
+    // Toggle between saved and manual login
+    document.getElementById('useOtherAccountBtn')?.addEventListener('click', showManualLogin);
+    document.getElementById('backToSavedBtn')?.addEventListener('click', showSavedLogin);
+    
+    // Max parallel downloads sync
+    const slider = document.getElementById('maxParallelSlider');
+    const numberInput = document.getElementById('maxParallelDownloads');
+    
+    slider?.addEventListener('input', (e) => {
+        numberInput.value = e.target.value;
+    });
+    
+    numberInput?.addEventListener('input', (e) => {
+        const value = Math.min(16, Math.max(1, parseInt(e.target.value) || 1));
+        e.target.value = value;
+        slider.value = value;
     });
     
     // Logout
@@ -49,7 +79,27 @@ function setupEventListeners() {
     
     // Filters
     document.getElementById('courseFilter').addEventListener('change', filterLectures);
+    document.getElementById('weekFilter').addEventListener('change', filterLectures);
+    document.getElementById('dayFilter').addEventListener('change', filterLectures);
     document.getElementById('cameraFilter').addEventListener('change', filterLectures);
+}
+
+// Show manual login form
+function showManualLogin() {
+    document.getElementById('savedUserCard').style.display = 'none';
+    document.getElementById('manualLoginForm').style.display = 'block';
+    document.getElementById('backToSavedBtn').style.display = 'block';
+    // Clear any previous values
+    document.getElementById('username').value = '';
+    document.getElementById('password').value = '';
+    document.getElementById('username').focus();
+}
+
+// Show saved login form
+function showSavedLogin() {
+    document.getElementById('savedUserCard').style.display = 'block';
+    document.getElementById('manualLoginForm').style.display = 'none';
+    document.getElementById('backToSavedBtn').style.display = 'none';
 }
 
 // Handle login
@@ -92,12 +142,47 @@ async function handleLogin() {
 
 // Handle continue with saved credentials
 async function handleContinueLogin() {
-    const username = document.getElementById('username').value;
-    const password = ''; // Will use saved password from backend
+    const continueBtn = document.getElementById('continueBtn');
+    continueBtn.disabled = true;
+    continueBtn.textContent = 'Signing in...';
     
-    // For saved credentials, we need to get the password from config
-    // This is a simplified version - in production, handle this more securely
-    await handleLogin();
+    try {
+        // Get saved credentials from config
+        const configResponse = await fetch(`${API_BASE}/config`);
+        const config = await configResponse.json();
+        
+        if (!config.hasCredentials) {
+            showStatus('loginStatus', 'No saved credentials found', 'error');
+            continueBtn.disabled = false;
+            continueBtn.textContent = 'Continue';
+            return;
+        }
+        
+        // Use the saved username and get password from backend
+        const response = await fetch(`${API_BASE}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                username: config.username,
+                useSavedPassword: true 
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMainPage();
+            await loadLectures();
+        } else {
+            showStatus('loginStatus', data.error || 'Login failed', 'error');
+            continueBtn.disabled = false;
+            continueBtn.textContent = 'Continue';
+        }
+    } catch (error) {
+        showStatus('loginStatus', 'Connection error. Please try again.', 'error');
+        continueBtn.disabled = false;
+        continueBtn.textContent = 'Continue';
+    }
 }
 
 // Show main page
@@ -118,6 +203,8 @@ async function loadLectures() {
             lectures = data.lectures;
             populateLectures(lectures);
             populateCourseFilter(lectures);
+            populateWeekFilter(lectures);
+            populateDayFilter(lectures);
             document.getElementById('lecturesStatus').textContent = `${lectures.length} lectures found`;
         } else {
             document.getElementById('lecturesStatus').textContent = 'Error loading lectures';
@@ -140,6 +227,26 @@ function populateLectures(lectureList) {
         item.dataset.id = lecture.id;
         item.dataset.course = lecture.courseName;
         item.dataset.camera = lecture.cameraType;
+        item.dataset.week = lecture.weekNumber || '';
+        item.dataset.day = lecture.dayOfWeek || '';
+        
+        // Format date display
+        let dateDisplay = '';
+        if (lecture.date) {
+            const date = new Date(lecture.date);
+            dateDisplay = date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+        
+        // Build details string
+        let details = [];
+        if (lecture.weekNumber) details.push(`Week ${lecture.weekNumber}`);
+        if (lecture.dayOfWeek) details.push(lecture.dayOfWeek);
+        if (dateDisplay) details.push(dateDisplay);
+        if (lecture.duration) details.push(lecture.duration);
         
         item.innerHTML = `
             <input type="checkbox" id="lecture-${lecture.id}" data-id="${lecture.id}">
@@ -147,6 +254,7 @@ function populateLectures(lectureList) {
                 <div class="lecture-name">${lecture.displayName}</div>
                 <div class="lecture-details">
                     <span class="camera-badge ${lecture.cameraType.toLowerCase()}">${lecture.cameraType}</span>
+                    ${details.length > 0 ? `<span class="lecture-meta">${details.join(' • ')}</span>` : ''}
                 </div>
             </div>
         `;
@@ -186,15 +294,50 @@ function populateCourseFilter(lectureList) {
     });
 }
 
+// Populate week filter
+function populateWeekFilter(lectureList) {
+    const filter = document.getElementById('weekFilter');
+    const weeks = [...new Set(lectureList.map(l => l.weekNumber).filter(w => w))].sort((a, b) => parseInt(a) - parseInt(b));
+    
+    filter.innerHTML = '<option value="">All Weeks</option>';
+    weeks.forEach(week => {
+        const option = document.createElement('option');
+        option.value = week;
+        option.textContent = `Week ${week}`;
+        filter.appendChild(option);
+    });
+}
+
+// Populate day filter
+function populateDayFilter(lectureList) {
+    const filter = document.getElementById('dayFilter');
+    const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const days = [...new Set(lectureList.map(l => l.dayOfWeek).filter(d => d))].sort((a, b) => {
+        return daysOrder.indexOf(a) - daysOrder.indexOf(b);
+    });
+    
+    filter.innerHTML = '<option value="">All Days</option>';
+    days.forEach(day => {
+        const option = document.createElement('option');
+        option.value = day;
+        option.textContent = day;
+        filter.appendChild(option);
+    });
+}
+
 // Filter lectures
 function filterLectures() {
     const courseFilter = document.getElementById('courseFilter').value;
+    const weekFilter = document.getElementById('weekFilter').value;
+    const dayFilter = document.getElementById('dayFilter').value;
     const cameraFilter = document.getElementById('cameraFilter').value;
     
     const filtered = lectures.filter(lecture => {
         const matchesCourse = !courseFilter || lecture.courseName === courseFilter;
+        const matchesWeek = !weekFilter || lecture.weekNumber === weekFilter;
+        const matchesDay = !dayFilter || lecture.dayOfWeek === dayFilter;
         const matchesCamera = !cameraFilter || lecture.cameraType === cameraFilter;
-        return matchesCourse && matchesCamera;
+        return matchesCourse && matchesWeek && matchesDay && matchesCamera;
     });
     
     populateLectures(filtered);
@@ -233,6 +376,7 @@ async function handleDownload() {
     }
     
     const outputDir = document.getElementById('outputDir').value;
+    const maxParallelDownloads = parseInt(document.getElementById('maxParallelDownloads').value) || 3;
     const downloadBtn = document.getElementById('downloadBtn');
     
     downloadBtn.disabled = true;
@@ -245,7 +389,8 @@ async function handleDownload() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 lectures: Array.from(selectedLectures),
-                outputDir: outputDir
+                outputDir: outputDir,
+                maxParallelDownloads: maxParallelDownloads
             })
         });
         

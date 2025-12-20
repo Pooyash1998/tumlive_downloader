@@ -5,13 +5,14 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"python backend/server.py\" \"electron .\"",
+    "dev": "concurrently \"python backend/server.py\" \"wait-on http://127.0.0.1:5001/health && electron . --dev\"",
     "build": "electron-builder"
   },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
-    "concurrently": "^8.0.0"
+    "concurrently": "^8.0.0",
+    "wait-on": "^7.0.1"
   },
   "build": {
     "appId": "com.tumlive.downloader",

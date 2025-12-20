@@ -26,24 +26,27 @@
                                 <div class="subtitle">Continue with saved account</div>
                             </div>
                         </div>
-                        <button id="continueBtn" class="btn btn-primary">Continue</button>
-                        <div class="divider">
-                            <span>or</span>
+                        <button id="continueBtn" class="btn btn-primary btn-full">Continue</button>
+                        <button id="useOtherAccountBtn" class="btn btn-link">Use different account</button>
+                    </div>
+                    
+                    <!-- Manual Login (hidden by default if saved user exists) -->
+                    <div id="manualLoginForm" class="manual-login-form">
+                        <div class="form-group">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" placeholder="Enter your TUM username">
                         </div>
+                        
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" placeholder="Enter your password">
+                        </div>
+                        
+                        <button id="loginBtn" class="btn btn-primary btn-full">Sign In</button>
+                        
+                        <!-- Back to saved user (if exists) -->
+                        <button id="backToSavedBtn" class="btn btn-link" style="display: none;">Back to saved account</button>
                     </div>
-                    
-                    <!-- Manual Login -->
-                    <div class="form-group">
-                        <label for="username">Username</label>
-                        <input type="text" id="username" placeholder="Enter your TUM username">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="password">Password</label>
-                        <input type="password" id="password" placeholder="Enter your password">
-                    </div>
-                    
-                    <button id="loginBtn" class="btn btn-primary">Sign In</button>
                     
                     <div id="loginStatus" class="status-message"></div>
                 </div>
@@ -75,6 +78,12 @@
                                 <select id="courseFilter">
                                     <option value="">All Courses</option>
                                 </select>
+                                <select id="weekFilter">
+                                    <option value="">All Weeks</option>
+                                </select>
+                                <select id="dayFilter">
+                                    <option value="">All Days</option>
+                                </select>
                                 <select id="cameraFilter">
                                     <option value="">All Camera Types</option>
                                     <option value="COMB">Combined</option>
@@ -103,8 +112,12 @@
                             </div>
                         </div>
                         
-                        <div class="info-text">
-                            <span id="maxDownloads">Max parallel downloads: 3</span>
+                        <div class="form-group">
+                            <label for="maxParallelDownloads">Max Parallel Downloads</label>
+                            <div class="input-group">
+                                <input type="range" id="maxParallelSlider" min="1" max="16" value="3" class="slider">
+                                <input type="number" id="maxParallelDownloads" min="1" max="16" value="3" class="number-input">
+                            </div>
                         </div>
                     </div>
                     

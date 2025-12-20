@@ -16,7 +16,8 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'default',
+    movable: true,
     show: false
   });
 
@@ -40,6 +41,12 @@ function createWindow() {
 }
 
 function startPythonBackend() {
+  // Only start Python backend in production mode
+  if (process.argv.includes('--dev')) {
+    console.log('Development mode: Python backend managed externally');
+    return;
+  }
+  
   const pythonScript = path.join(__dirname, '../backend/server.py');
   pythonProcess = spawn('python', [pythonScript]);
   

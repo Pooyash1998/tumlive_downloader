@@ -4,6 +4,7 @@ import threading
 import queue
 import sys
 import os
+import re
 
 # Import our modules (now in same directory)
 from tum_live import get_courses, get_lecture_urls, get_playlist_url
@@ -69,6 +70,11 @@ courses = []
 config = {}
 download_status = {"status": "idle", "message": "", "progress": 0}
 
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for wait-on"""
+    return jsonify({"status": "ok", "message": "TUM Live Downloader backend is running"})
+
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """Get configuration"""
@@ -89,6 +95,14 @@ def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
+    use_saved_password = data.get('useSavedPassword', False)
+    
+    # If using saved password, get it from config
+    if use_saved_password:
+        config = load_config_file()
+        password = config.get('Password')
+        if not password:
+            return jsonify({"error": "No saved password found"}), 400
     
     if not username or not password:
         return jsonify({"error": "Username and password required"}), 400
@@ -126,7 +140,12 @@ def get_lectures():
                         "lectureId": lecture_id,
                         "lectureUrl": lecture_url,
                         "cameraType": camera_type,
-                        "displayName": f"{course_name} - {lecture_id}"
+                        "displayName": f"{course_name} - {lecture_id}",
+                        "date": "",
+                        "weekNumber": "",
+                        "dayOfWeek": "",
+                        "duration": "",
+                        "semester": ""
                     })
         
         return jsonify({"lectures": formatted_lectures})
@@ -141,6 +160,10 @@ def start_download():
     data = request.json
     selected_lectures = data.get('lectures', [])
     output_dir = data.get('outputDir', '')
+    max_parallel_downloads = data.get('maxParallelDownloads', 3)
+    
+    # Validate max parallel downloads
+    max_parallel_downloads = max(1, min(16, int(max_parallel_downloads)))
     
     if not selected_lectures:
         return jsonify({"error": "No lectures selected"}), 400
@@ -200,7 +223,7 @@ def start_download():
                             parse_tmp_folder(config),
                             config.get('Keep-Original-File', True),
                             config.get('Jumpcut', True),
-                            Semaphore(parse_maximum_parallel_downloads(config))
+                            Semaphore(max_parallel_downloads)  # Use custom value
                         )
             
             # Wait for completion
@@ -237,4 +260,4 @@ def logout():
 
 if __name__ == '__main__':
     print("Starting TUM Live Downloader backend...")
-    app.run(host='127.0.0.1', port=5000, debug=False)
+    app.run(host='127.0.0.1', port=5001, debug=False)

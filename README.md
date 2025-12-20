@@ -41,6 +41,8 @@ A modern desktop application for downloading TUM Live lectures with a beautiful 
    npm start
    ```
 
+**Note:** If you get a "port already in use" error, make sure to disable AirPlay Receiver in macOS System Settings, or the app will automatically use port 5001.
+
 ## Configuration
 
 Create a `config.yml` file in the root directory:
