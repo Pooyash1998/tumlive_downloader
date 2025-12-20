@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TUM Live Downloader</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login Page -->
+        <div id="loginPage" class="page active">
+            <div class="login-container">
+                <div class="login-header">
+                    <h1>TUM Live</h1>
+                    <p>Video Downloader</p>
+                </div>
+                
+                <div class="login-form">
+                    <!-- Saved User Card (if exists) -->
+                    <div id="savedUserCard" class="saved-user-card" style="display: none;">
+                        <div class="user-info">
+                            <div class="avatar" id="userAvatar">U</div>
+                            <div class="user-details">
+                                <div class="username" id="savedUsername"></div>
+                                <div class="subtitle">Continue with saved account</div>
+                            </div>
+                        </div>
+                        <button id="continueBtn" class="btn btn-primary">Continue</button>
+                        <div class="divider">
+                            <span>or</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Manual Login -->
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" placeholder="Enter your TUM username">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="Enter your password">
+                    </div>
+                    
+                    <button id="loginBtn" class="btn btn-primary">Sign In</button>
+                    
+                    <div id="loginStatus" class="status-message"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Page -->
+        <div id="mainPage" class="page">
+            <header class="app-header">
+                <h1>TUM Live Downloader</h1>
+                <button id="logoutBtn" class="btn btn-secondary">Sign Out</button>
+            </header>
+            
+            <main class="app-main">
+                <!-- Lectures Section -->
+                <section class="lectures-section">
+                    <div class="section-header">
+                        <h2>Available Lectures</h2>
+                        <div id="lecturesStatus" class="status">Loading...</div>
+                    </div>
+                    
+                    <div class="lectures-container">
+                        <div class="lectures-header">
+                            <div class="select-all">
+                                <input type="checkbox" id="selectAll">
+                                <label for="selectAll">Select All</label>
+                            </div>
+                            <div class="filters">
+                                <select id="courseFilter">
+                                    <option value="">All Courses</option>
+                                </select>
+                                <select id="cameraFilter">
+                                    <option value="">All Camera Types</option>
+                                    <option value="COMB">Combined</option>
+                                    <option value="PRES">Presentation</option>
+                                    <option value="CAM">Camera</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div id="lecturesList" class="lectures-list">
+                            <!-- Lectures will be populated here -->
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- Download Section -->
+                <section class="download-section">
+                    <div class="download-settings">
+                        <h3>Download Settings</h3>
+                        
+                        <div class="form-group">
+                            <label for="outputDir">Output Directory</label>
+                            <div class="input-group">
+                                <input type="text" id="outputDir" readonly>
+                                <button id="browseBtn" class="btn btn-secondary">Browse</button>
+                            </div>
+                        </div>
+                        
+                        <div class="info-text">
+                            <span id="maxDownloads">Max parallel downloads: 3</span>
+                        </div>
+                    </div>
+                    
+                    <div class="download-controls">
+                        <div id="downloadProgress" class="progress-container" style="display: none;">
+                            <div class="progress-bar">
+                                <div id="progressFill" class="progress-fill"></div>
+                            </div>
+                            <div id="progressText" class="progress-text">0%</div>
+                        </div>
+                        
+                        <button id="downloadBtn" class="btn btn-primary btn-large">Download Selected</button>
+                        
+                        <div id="downloadStatus" class="status-message"></div>
+                    </div>
+                </section>
+            </main>
+        </div>
+        
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <h3>Loading Lectures</h3>
+                <p>Fetching available lectures...</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>

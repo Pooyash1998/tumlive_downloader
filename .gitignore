@@ -1,29 +1,54 @@
-/.pytest_cache
-/build
-/dist
-*.D
-*.spec
-geckodriver.log
-config.yml
-test_config.yml
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
 
-# Python cache
-__pycache__
-/src/__pycache__
-# VS Code configuration
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Electron
+dist/
+out/
+
+# IDE
 .vscode/
-.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
 
-# Pyenv
-.python-version
-
-# dotenv
-.env
-.env.*
-
-# MacOS system files
+# OS
 .DS_Store
-
-# Windows system files
 Thumbs.db
 desktop.ini
+
+# Project specific
+config.yml
+test_config.yml
+output/
+tmp/
+downloads/
+*.mp4
+*.ts
+*.m3u8
+geckodriver.log
+
+# Environment
+.env
+.env.*
+.python-version
+
+# Testing
+.pytest_cache/
+*.spec
