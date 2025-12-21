@@ -14,7 +14,7 @@ The goal is simple: reliable offline access to TUM Live lectures.
 
 See TUM Live Downloader in action:
 
-![Demo Video](demo/demo_small.mp4)
+https://github.com/user-attachments/assets/141389c2-7a0e-4184-8d43-625b85c50f25
 
 *The demo shows the complete workflow: login, course selection, lecture filtering, and download progress tracking.*
 
