@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from tum_live import get_courses, get_lecture_urls, get_playlist_url
-from multiprocessing import Semaphore
+from multiprocessing import Semaphore, Value
 import threading
 import queue
 import sys
@@ -19,6 +19,9 @@ import shutil
 
 app = Flask(__name__)
 CORS(app)
+
+# Shared cancellation flag that all processes can access
+cancellation_flag = Value('i', 0)  # 0 = not cancelled, 1 = cancelled
 
 def load_config_file():
     """Load configuration from config file"""
@@ -212,7 +215,7 @@ def get_course_lectures(course_name):
 
 def reset_download_state():
     """Reset all download-related global state variables"""
-    global download_status, lecture_progress, active_download_processes, download_thread_active, current_download_semaphore, download_cancelled
+    global download_status, lecture_progress, active_download_processes, download_thread_active, current_download_semaphore, download_cancelled, cancellation_flag
     
     print("Resetting all download states...")
     
@@ -229,8 +232,9 @@ def reset_download_state():
     download_thread_active = None
     current_download_semaphore = None
     
-    # Reset cancellation flag
+    # Reset cancellation flags
     download_cancelled = False
+    cancellation_flag.value = 0  # Reset shared flag
     
     # Clear downloader progress data
     downloader.clear_progress_data()
@@ -344,7 +348,8 @@ def start_download():
                     modified_playlist,        # videos: list[tuple[str, str]]
                     course_output_path,       # output_folder_path: Path (now exists)
                     parse_tmp_folder(config), # tmp_directory: Path
-                    download_semaphore        # semaphore: Semaphore (reuse same one)
+                    download_semaphore,       # semaphore: Semaphore (reuse same one)
+                    cancellation_flag         # shared cancellation flag
                 )
                 all_processes.extend(processes)
                 active_download_processes.extend(processes)  # Track for cancellation
@@ -518,45 +523,48 @@ def cancel_download():
     try:
         print("=== STARTING AGGRESSIVE DOWNLOAD CANCELLATION ===")
         
-        # 0. Set cancellation flag to stop new processes IMMEDIATELY
+        # 0. Set cancellation flags to stop new processes IMMEDIATELY
         download_cancelled = True
+        cancellation_flag.value = 1  # Set shared flag for all processes
         
-        # 1. Wait a moment for any processes that are just starting to see the flag
-        print("Setting cancellation flag and waiting for processes to see it...")
+        print("Cancellation flags set - no new processes should start")
+        
+        # 1. Immediately kill ALL Python processes that might be downloading
+        # This is more aggressive - kill first, ask questions later
+        kill_all_python_download_processes()
+        
+        # 2. Wait a moment for processes to die
+        print("Waiting for processes to die...")
         time.sleep(3)
         
-        # 2. Kill all download processes aggressively
+        # 3. Kill tracked processes (in case some survived)
         kill_all_download_processes()
         
-        # 3. Wait longer for processes to actually die
-        print("Waiting for processes to die...")
-        time.sleep(5)
+        # 4. Wait longer for processes to actually die
+        print("Waiting longer for processes to die...")
+        time.sleep(3)
         
-        # 4. Clean up semaphore more aggressively
+        # 5. Clean up semaphore more aggressively
         cleanup_semaphore()
         
-        # 5. Clear all tracking variables and reset ALL states
+        # 6. Clear all tracking variables and reset ALL states
         active_download_processes.clear()
         download_thread_active = None
         current_download_semaphore = None
         
-        # 6. Clear progress data and reset download status
+        # 7. Clear progress data and reset download status
         downloader.clear_progress_data()
         lecture_progress.clear()
         
         # IMPORTANT: Reset download_status to idle to stop frontend polling
         download_status = {"status": "idle", "message": "", "progress": 0}
         
-        # 7. Wait more before file cleanup
-        print("Waiting before file cleanup...")
-        time.sleep(2)
-        
         # 8. Clean up all temporary files and lock files
         aggressive_cleanup()
         
         # 9. Final verification - remove any lock files that might have been recreated
         print("Final lock file cleanup...")
-        time.sleep(2)
+        time.sleep(1)
         final_lock_cleanup()
         
         # 10. One more process check to make sure everything is dead
@@ -588,6 +596,48 @@ def cancel_download():
     except Exception as e:
         print(f"Error during cancellation: {e}")
         return jsonify({"error": f"Failed to cancel download: {str(e)}"}), 500
+
+def kill_all_python_download_processes():
+    """Immediately kill ALL Python processes that might be downloading - nuclear option"""
+    print("NUCLEAR OPTION: Killing ALL Python download processes immediately...")
+    
+    killed_count = 0
+    
+    try:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if proc.info['name'] in ['python', 'python3', 'Python']:
+                    cmdline = ' '.join(proc.info['cmdline'] or [])
+                    
+                    # Kill any Python process that looks like it's downloading
+                    if any(keyword in cmdline for keyword in [
+                        'downloader.py', 'tum_video_scraper', 'download_list_of_videos', 
+                        'ffmpeg', 'm3u8', 'segments', '.ts', '.mp4'
+                    ]):
+                        pid = proc.info['pid']
+                        print(f"NUCLEAR: Killing Python download process {pid}: {cmdline[:100]}")
+                        
+                        try:
+                            # Kill immediately with SIGKILL (no graceful shutdown)
+                            proc.kill()
+                            killed_count += 1
+                        except psutil.NoSuchProcess:
+                            print(f"Process {pid} already dead")
+                        except Exception as e:
+                            print(f"Error killing process {pid}: {e}")
+                            
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            except Exception as e:
+                print(f"Error checking process: {e}")
+                
+    except Exception as e:
+        print(f"Error in nuclear process kill: {e}")
+    
+    print(f"NUCLEAR: Killed {killed_count} Python download processes")
+    
+    # Wait a moment for processes to die
+    time.sleep(2)
 
 def kill_all_download_processes():
     """Aggressively kill all download processes and their children"""

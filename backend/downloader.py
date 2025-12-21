@@ -82,12 +82,17 @@ def clear_progress_data():
 
 def download_list_of_videos(videos: list[tuple[str, str]],
                             output_folder_path: Path, tmp_directory: Path,
-                            semaphore: Semaphore) -> [Process]:
+                            semaphore: Semaphore, cancellation_flag) -> [Process]:
     # Clear any existing progress data
     clear_progress_data()
     
     child_process_list = []
     for filename, url in videos:
+        # Check shared cancellation flag before starting new processes
+        if cancellation_flag.value == 1:
+            print(f"Download cancelled via shared flag, skipping {filename}")
+            break
+        
         original_filename = filename
         filename = re.sub('[\\\\/:*?"<>|]|[\x00-\x20]', '_', filename) + ".mp4"  # Filter illegal filename chars
         
@@ -98,6 +103,12 @@ def download_list_of_videos(videos: list[tuple[str, str]],
         """Locks can also be created by the user to keep us from downloading a specific video"""
         if not (Path(output_file_path.as_posix() + ".lock").exists()  # Check if lock file exists
                 or output_file_path.exists()):  # Check if file exists (we downloaded and converted it already)
+            
+            # Double-check cancellation flag before creating lock file
+            if cancellation_flag.value == 1:
+                print(f"Download cancelled before creating lock for {filename}")
+                break
+                
             Path(output_file_path.as_posix() + ".lock").touch()  # Create lock file
             
             # Initialize progress for this file
@@ -108,21 +119,38 @@ def download_list_of_videos(videos: list[tuple[str, str]],
             child_process = Process(target=download,  # Download video in separate process
                                     args=(filename, url,
                                           output_file_path, tmp_directory,
-                                          semaphore))
+                                          semaphore, cancellation_flag))
             child_process.start()
             child_process_list.append(child_process)
     return child_process_list
 
 def download(filename: str, playlist_url: str,
              output_file_path: Path, tmp_directory: Path,
-             semaphore: Semaphore):
+             semaphore: Semaphore, cancellation_flag):
     
     print(f"Download of {filename} started")
+    
+    # Check shared cancellation flag before doing anything
+    if cancellation_flag.value == 1:
+        print(f"Download cancelled before starting for {filename}")
+        return
     
     # Update status to "starting" before acquiring semaphore
     update_progress(filename, 0, 1, 0)
     
+    # Check cancellation flag before acquiring semaphore
+    if cancellation_flag.value == 1:
+        print(f"Download cancelled before acquiring semaphore for {filename}")
+        return
+    
     semaphore.acquire()  # Acquire lock
+    
+    # Check cancellation flag after acquiring semaphore
+    if cancellation_flag.value == 1:
+        print(f"Download cancelled after acquiring semaphore for {filename}")
+        semaphore.release()
+        return
+    
     download_start_time = time.time()  # Track download time
     
     # Update status to "downloading" after acquiring semaphore
@@ -158,6 +186,12 @@ def download(filename: str, playlist_url: str,
 
         def download_ts(ts_url, index):
             nonlocal pbar, completed_segments
+            
+            # Check for cancellation before downloading each segment
+            if cancellation_flag.value == 1:
+                print(f"Download cancelled during segment download for {filename}")
+                return None
+            
             ts_path = ts_folder / f"{index:05d}.ts"
             if ts_path.exists():
                 with lock:
@@ -171,11 +205,20 @@ def download(filename: str, playlist_url: str,
             
             max_retries = 5
             for attempt in range(max_retries):
+                # Check for cancellation before each retry
+                if cancellation_flag.value == 1:
+                    print(f"Download cancelled during retry for {filename}")
+                    return None
+                    
                 try:
                     r = requests.get(ts_url, stream=True, timeout=15)
                     r.raise_for_status()
                     with open(ts_path, "wb") as f:
                         for chunk in r.iter_content(1024*1024):
+                            # Check for cancellation during chunk download
+                            if cancellation_flag.value == 1:
+                                print(f"Download cancelled during chunk download for {filename}")
+                                return None
                             if chunk:
                                 f.write(chunk)
                     with lock:
