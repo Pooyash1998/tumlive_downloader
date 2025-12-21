@@ -5,6 +5,7 @@ import queue
 import sys
 import os
 import re
+import time
 
 # Import our modules (now in same directory)
 from tum_live import get_courses, get_lecture_urls, get_playlist_url
@@ -67,6 +68,7 @@ def parse_maximum_parallel_downloads(cfg) -> int:
 # Global variables
 driver = None
 courses = []
+all_lectures = {}  # Cache all lectures by course name
 config = {}
 download_status = {"status": "idle", "message": "", "progress": 0}
 
@@ -90,7 +92,7 @@ def get_config():
 @app.route('/api/login', methods=['POST'])
 def login():
     """Login and get courses"""
-    global driver, courses, config
+    global driver, courses, all_lectures, config
     
     data = request.json
     username = data.get('username')
@@ -110,6 +112,9 @@ def login():
     try:
         # Use existing get_courses function
         driver, courses = get_courses(username, password)
+        
+        # Fetch ALL lectures for ALL courses at once
+        all_lectures = get_lecture_urls(driver, courses)
         
         return jsonify({
             "success": True,
@@ -141,26 +146,15 @@ def get_courses_list():
 
 @app.route('/api/lectures/<course_name>', methods=['GET'])
 def get_course_lectures(course_name):
-    """Get lectures for a specific course"""
-    global driver, courses
+    """Get lectures for a specific course (from cache)"""
+    global all_lectures
     
-    if not driver or not courses:
-        return jsonify({"error": "Not logged in"}), 401
+    if not all_lectures:
+        return jsonify({"error": "No lectures cached. Please login again."}), 401
     
     try:
-        # Find the course
-        selected_course = None
-        for name, url in courses:
-            if name == course_name:
-                selected_course = (name, url)
-                break
-        
-        if not selected_course:
-            return jsonify({"error": "Course not found"}), 404
-        
-        # Get lectures for this specific course
-        lectures = get_lecture_urls(driver, [selected_course])
-        course_lectures = lectures.get(course_name, [])
+        # Get lectures from cache
+        course_lectures = all_lectures.get(course_name, [])
         
         # Format lectures for frontend
         formatted_lectures = []
@@ -189,18 +183,22 @@ def start_download():
     global driver, download_status, config
     
     data = request.json
-    selected_lectures = data.get('lectures', [])
+    course_name = data.get('courseName', '')
+    lectures_by_stream_type = data.get('lecturesByStreamType', {})
     output_dir = data.get('outputDir', '')
     max_parallel_downloads = data.get('maxParallelDownloads', 3)
     
     # Validate max parallel downloads
     max_parallel_downloads = max(1, min(16, int(max_parallel_downloads)))
     
-    if not selected_lectures:
+    if not lectures_by_stream_type:
         return jsonify({"error": "No lectures selected"}), 400
     
     if not output_dir:
         return jsonify({"error": "Output directory required"}), 400
+    
+    if not course_name:
+        return jsonify({"error": "Course name required"}), 400
     
     # Start download in background thread
     def download_thread():
@@ -209,62 +207,73 @@ def start_download():
         try:
             download_status = {"status": "downloading", "message": "Preparing downloads...", "progress": 0}
             
-            # Group by course and camera type
-            courses_to_download = {}
-            for lecture in selected_lectures:
-                course_name = lecture["courseName"]
-                camera_type = lecture["cameraType"]
+            all_processes = []
+            total_stream_types = len(lectures_by_stream_type)
+            current_stream = 0
+            total_lectures = sum(len(lectures) for lectures in lectures_by_stream_type.values())
+            
+            # Process each stream type separately
+            for stream_type, lectures_dict in lectures_by_stream_type.items():
+                current_stream += 1
+                download_status = {
+                    "status": "downloading",
+                    "message": f"Getting playlist URLs for {stream_type}...",
+                    "progress": int((current_stream / total_stream_types) * 20)  # First 20% for playlist fetching
+                }
                 
-                if course_name not in courses_to_download:
-                    courses_to_download[course_name] = {}
-                if camera_type not in courses_to_download[course_name]:
-                    courses_to_download[course_name][camera_type] = []
+                # Get playlist URLs using the existing function
+                playlists = get_playlist_url(driver, lectures_dict)
                 
-                courses_to_download[course_name][camera_type].append(lecture)
+                if course_name in playlists:
+                    # Create output folder for this stream type
+                    subject_folder = Path(output_dir) / f"{course_name}_{stream_type}"
+                    subject_folder.mkdir(parents=True, exist_ok=True)
+                    
+                    # Start downloads for this stream type
+                    processes = downloader.download_list_of_videos(
+                        playlists[course_name],  # List of (title, m3u8_url) tuples
+                        subject_folder,          # output_folder_path
+                        parse_tmp_folder(config), # tmp_directory
+                        Semaphore(max_parallel_downloads)  # semaphore
+                    )
+                    all_processes.extend(processes)
             
-            # Get lecture URLs
-            selected_courses_list = [(name, "") for name in courses_to_download.keys()]
-            lectures = get_lecture_urls(driver, selected_courses_list)
+            # Monitor download progress (remaining 80% progress)
+            download_status = {"status": "downloading", "message": "Downloading videos...", "progress": 20}
             
-            spawned_processes = []
-            total_items = len(selected_lectures)
-            current_item = 0
+            completed_lectures = 0
             
-            for course_name, camera_types in courses_to_download.items():
-                for camera_type, lecture_infos in camera_types.items():
-                    current_item += 1
-                    progress = int((current_item / total_items) * 100)
+            # Monitor processes
+            while all_processes:
+                # Check which processes have finished
+                finished_processes = []
+                for i, process in enumerate(all_processes):
+                    if not process.is_alive():
+                        finished_processes.append(i)
+                        completed_lectures += 1
+                
+                # Remove finished processes
+                for i in reversed(finished_processes):
+                    all_processes.pop(i)
+                
+                # Update progress
+                if total_lectures > 0:
+                    progress = 20 + int((completed_lectures / total_lectures) * 80)
                     download_status = {
-                        "status": "downloading",
-                        "message": f"Processing {course_name} ({camera_type})...",
+                        "status": "downloading", 
+                        "message": f"Downloaded {completed_lectures}/{total_lectures} lectures...", 
                         "progress": progress
                     }
-                    
-                    # Get playlist URLs
-                    course_lectures = {course_name: lectures.get(course_name, [])}
-                    playlists = get_playlist_url(driver, course_lectures, camera_type)
-                    
-                    if course_name in playlists:
-                        subject_folder = Path(output_dir, f"{course_name}_{camera_type}")
-                        subject_folder.mkdir(exist_ok=True)
-                        
-                        spawned_processes += downloader.download_list_of_videos(
-                            playlists[course_name],
-                            subject_folder,
-                            parse_tmp_folder(config),
-                            config.get('Keep-Original-File', True),
-                            config.get('Jumpcut', True),
-                            Semaphore(max_parallel_downloads)  # Use custom value
-                        )
+                
+                # Wait a bit before checking again
+                time.sleep(1)
             
-            # Wait for completion
-            download_status = {"status": "downloading", "message": "Finalizing downloads...", "progress": 95}
-            for process in spawned_processes:
-                process.join()
-            
-            download_status = {"status": "completed", "message": "Downloads completed successfully!", "progress": 100}
+            download_status = {"status": "completed", "message": f"All {total_lectures} lectures downloaded successfully!", "progress": 100}
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Download error: {error_details}")
             download_status = {"status": "error", "message": f"Download failed: {str(e)}", "progress": 0}
     
     threading.Thread(target=download_thread, daemon=True).start()
@@ -276,16 +285,72 @@ def get_download_status():
     """Get current download status"""
     return jsonify(download_status)
 
-@app.route('/api/logout', methods=['POST'])
+@app.route('/api/browse-folder', methods=['POST'])
+def browse_folder():
+    """Open folder browser dialog"""
+    try:
+        import subprocess
+        import os
+        
+        # Use macOS native folder picker via AppleScript
+        if os.name == 'posix' and os.uname().sysname == 'Darwin':  # macOS
+            script = '''
+            tell application "System Events"
+                activate
+                set folderPath to choose folder with prompt "Select Output Directory"
+                return POSIX path of folderPath
+            end tell
+            '''
+            
+            result = subprocess.run(['osascript', '-e', script], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                folder_path = result.stdout.strip()
+                if folder_path and folder_path != '':
+                    return jsonify({"success": True, "path": folder_path})
+                else:
+                    return jsonify({"success": False, "message": "No folder selected"})
+            else:
+                return jsonify({"success": False, "message": "Dialog cancelled"})
+        
+        else:
+            # Fallback to tkinter for other systems
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            # Create a root window and hide it
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes('-topmost', True)
+            
+            # Open folder dialog
+            folder_path = filedialog.askdirectory(
+                title="Select Output Directory",
+                mustexist=True
+            )
+            
+            root.destroy()
+            
+            if folder_path:
+                return jsonify({"success": True, "path": folder_path})
+            else:
+                return jsonify({"success": False, "message": "No folder selected"})
+                
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "error": "Dialog timeout"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 def logout():
     """Logout and cleanup"""
-    global driver, courses
+    global driver, courses, all_lectures
     
     if driver:
         driver.quit()
         driver = None
     
     courses = []
+    all_lectures = {}
     
     return jsonify({"success": True})
 

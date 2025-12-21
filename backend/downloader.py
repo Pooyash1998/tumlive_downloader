@@ -21,7 +21,6 @@ def log(msg: str):
 
 def download_list_of_videos(videos: list[tuple[str, str]],
                             output_folder_path: Path, tmp_directory: Path,
-                            keep_original: bool, jump_cut: bool,
                             semaphore: Semaphore) -> [Process]:
     child_process_list = []
     for filename, url in videos:
@@ -44,8 +43,8 @@ def download_list_of_videos(videos: list[tuple[str, str]],
     return child_process_list
 
 def download(filename: str, playlist_url: str,
-             output_file_path: Path, output_file_path_jc: Path, tmp_directory: Path,
-             keep_original: bool, jump_cut: bool,
+             output_file_path: Path, tmp_directory: Path,
+             keep_original: bool,
              semaphore: Semaphore):
     
     print(f"Download of {filename} started")
@@ -134,42 +133,10 @@ def download(filename: str, playlist_url: str,
     print(f"Download of {filename} completed after {(time.time() - download_start_time):.0f}s")
     log(f"Completed {filename} in {(time.time() - download_start_time):.1f}s "
     f"({len(segment_paths)} segments)")
-    shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location
-
-    if jump_cut:
-        cut_video(filename, playlist_url, output_file_path_jc, temporary_file_path)
-                  
-    else:
-        print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
-    
-    if not keep_original:
-        output_file_path.unlink()
+    shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location    
+    print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
     temporary_file_path.unlink()  # Delete temp file
     Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
     shutil.rmtree(ts_folder)  # Remove ts folder
     semaphore.release()  # Release lock
 
-def cut_video(filename: str, playlist_url: str,
-              output_file_path_jc: Path, input_path: Path):
-    print(f"Conversion of {filename} started")
-    conversion_start_time = time.time()  # Track auto-editor time
-    auto_editor = subprocess.run([
-        'auto-editor',
-        input_path,  # Input file
-        '--silent_speed', '8',  # Speed multiplier while there is no audio
-        '--video_codec', 'h264',  # Video codec
-        '--no_open',  # Don't open the finished file
-        '-o', output_file_path_jc  # Output file
-    ], capture_output=True)
-
-    if auto_editor.returncode != 0:  # Print debug output in case of error
-        print(f"Error during conversion of \"{filename}\" with auto-editor:", file=sys.stderr)
-        print(f"Playlist file: {playlist_url}", file=sys.stderr)
-        print(f"Reading from: {input_path}", file=sys.stderr)
-        print(f"Designated output location: {output_file_path_jc}", file=sys.stderr)
-        print(f"Output of auto-editor to stdout:\n{auto_editor.stdout.decode('utf-8')}", file=sys.stderr)
-        print(f"Output of auto-editor to stderr:\n{auto_editor.stderr.decode('utf-8')}", file=sys.stderr)
-        return
-    
-    print(f"Conversion of {filename} completed after {(time.time() - conversion_start_time):.0f}s")
-    return

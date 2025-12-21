@@ -143,6 +143,16 @@ body {
     border-color: #007aff;
 }
 
+.path-input {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 0.9rem !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    direction: rtl;
+    text-align: left;
+}
+
 /* Buttons */
 .btn {
     padding: 12px 24px;
@@ -325,6 +335,48 @@ body {
     overflow-y: auto;
     padding: 10px;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sort-toggle {
+    display: flex;
+    justify-content: flex-end;
+    padding: 5px 10px;
+    border-bottom: 1px solid #f0f0f0;
+    margin-bottom: 10px;
+}
+
+.sort-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 1px solid #d2d2d7;
+    border-radius: 4px;
+    background: white;
+    color: #86868b;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sort-button:hover {
+    background: #f5f5f7;
+    color: #1d1d1f;
+}
+
+.sort-icon {
+    font-size: 0.8rem;
+    transition: transform 0.2s ease;
+}
+
+.sort-button.desc .sort-icon {
+    transform: rotate(180deg);
+}
+
+.lectures-content {
+    flex: 1;
 }
 
 .lecture-item {
@@ -392,7 +444,113 @@ body {
     color: white;
 }
 
-/* Download Section */
+/* Course Selection */
+.course-selection {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.courses-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.course-card {
+    background: white;
+    border: 2px solid #d2d2d7;
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.course-card:hover {
+    border-color: #007aff;
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.1);
+}
+
+.course-card h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 8px;
+}
+
+.course-card p {
+    color: #86868b;
+    font-size: 0.9rem;
+}
+
+/* Lectures Section Updates */
+.lectures-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 400px;
+    min-height: 0;
+}
+
+.lectures-section .section-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+    flex-shrink: 0;
+}
+
+.lectures-section .section-header h2 {
+    flex: 1;
+}
+
+/* Lecture Groups */
+.lecture-group {
+    margin-bottom: 20px;
+}
+
+.lecture-group-header {
+    background: #f5f5f7;
+    padding: 10px 15px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #1d1d1f;
+    border-left: 4px solid #007aff;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.2s ease;
+    user-select: none;
+}
+
+.lecture-group-header:hover {
+    background: #e8e8ed;
+}
+
+.lecture-group-header .toggle-icon {
+    font-size: 0.8rem;
+    color: #86868b;
+    transition: transform 0.2s ease;
+}
+
+.lecture-group-header.expanded .toggle-icon {
+    transform: rotate(90deg);
+}
+
+.lecture-group-content {
+    display: none;
+    overflow: hidden;
+}
+
+.lecture-group-content.expanded {
+    display: block;
+}
 .download-section {
     flex: 1;
     display: flex;
@@ -430,29 +588,29 @@ body {
 
 .slider {
     flex: 2;
-    height: 4px;
+    height: 2px;
     -webkit-appearance: none;
     appearance: none;
     background: #f5f5f7;
-    border-radius: 2px;
+    border-radius: 1px;
     outline: none;
     padding: 0;
-    margin: 18px 0;
+    margin: 19px 0;
 }
 
 .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: #007aff;
     cursor: pointer;
 }
 
 .slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     background: #007aff;
     cursor: pointer;
@@ -619,6 +777,143 @@ body {
     .app-main {
         padding: 5px;
     }
+}
+
+/* Download Dialog */
+.download-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1001;
+}
+
+.download-dialog-content {
+    background: white;
+    border-radius: 16px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.download-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #d2d2d7;
+}
+
+.download-dialog-header h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #1d1d1f;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #86868b;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.close-btn:hover {
+    background: #f5f5f7;
+    color: #1d1d1f;
+}
+
+.download-dialog-body {
+    padding: 24px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.download-info {
+    margin-bottom: 20px;
+}
+
+.download-course {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 8px;
+}
+
+.download-stream-types {
+    font-size: 0.9rem;
+    color: #86868b;
+}
+
+.download-progress-section {
+    margin-bottom: 20px;
+}
+
+.download-progress-section .progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #f5f5f7;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.download-progress-section .progress-fill {
+    height: 100%;
+    background: #007aff;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+.download-progress-section .progress-text {
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 4px;
+}
+
+.progress-message {
+    text-align: center;
+    font-size: 0.9rem;
+    color: #86868b;
+}
+
+.download-logs {
+    background: #f5f5f7;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.download-log-entry {
+    margin-bottom: 4px;
+    color: #1d1d1f;
+}
+
+.download-log-entry.success {
+    color: #34c759;
+}
+
+.download-log-entry.error {
+    color: #ff3b30;
 }
 
 /* Loading Overlay */

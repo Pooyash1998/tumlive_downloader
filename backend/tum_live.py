@@ -116,11 +116,15 @@ def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[
                     vod_id = url.rstrip("/").split("/")[-1]
 
                     title_elements = card.find_elements(By.CSS_SELECTOR, "a.title")
-                    title = title_elements[0].text.strip() if title_elements else "No Title"
+                    title = title_elements[0].text.strip() if title_elements else ""
 
                     date_text = card.find_element(By.CSS_SELECTOR, "span.date").text.strip()
                     weekday, rest = date_text.split(", ", 1)
                     dt = datetime.strptime(rest, "%m/%d/%Y, %I:%M %p")
+                    
+                    # If no title, use formatted date as fallback
+                    if not title:
+                        title = f"Lecture: {dt.strftime('%B %d, %Y')}"
 
                     lectures[course_name].append({
                         "id": vod_id,
@@ -129,36 +133,37 @@ def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[
                         "date": dt.date(),
                         "time": dt.time(),
                         "weekday": weekday,
-                        "week": week_number
+                        "week": week_number,
+                        "strem_type": "COMB"
                     })
                 except Exception as e:
                     print(f"Error parsing VOD card: {e}")
 
     return lectures
-def get_playlist_url(driver : WebDriver, lectures: Dict[str, List[tuple[str, str]]], stream_type: str = "COMB") -> Dict[str, List[tuple[str, str]]] :
-    # stream_type: "COMB", "CAM", or "PRES"
+def get_playlist_url(driver : WebDriver, lectures: Dict[str, List[dict]]) -> Dict[str, List[tuple[str, str]]] :
+    # lectures: Dict[course_name, List[lecture_dict_with_stream_type]]
     updated_lectures: Dict[str, List[tuple[str, str]]] = {}
-    for course_name, lec_list in lectures.items():
+    for course_name, lecture_list in lectures.items():
         updated_lectures[course_name] = []
-        for lec_id, lec_url in lec_list:
+        for lecture in lecture_list:
+            url = lecture["url"]
+            stream_type = lecture["stream_type"]
+            title = lecture.get("title", f"Lecture {lecture['id']}")
+            
+            # Modify URL based on stream type
             if stream_type.upper() != "COMB":
-                url = f"{lec_url}/{stream_type.upper()}"
-            else: 
-                url = lec_url
+                url = f"{url}/{stream_type.upper()}"
+
             driver.get(url)
             sleep(1)
             page_source = driver.page_source
-            # get the Lecture title 
-            title_match = re.search(r'<h1 [^>]*@titleupdate\.window[^>]*>(.*?)</h1>', page_source, re.DOTALL)
-            if title_match :
-                lecture_name = title_match.group(1).strip()
-            else :
-                lecture_name = lec_id  # fallback
-            # get the m3u8 playlist
+            
+            # Extract m3u8 playlist URL
             m3u8_matches = re.findall(r'<source\s+src="([^"]+\.m3u8[^"]*)"', page_source)
             if not m3u8_matches:
-                raise ValueError(f"No m3u8 found for {lecture_name}")
-            m3u8_url = m3u8_matches[0] # first match
-            updated_lectures[course_name].append((lecture_name, m3u8_url))
+                raise ValueError(f"No m3u8 found for {title}")
+            
+            m3u8_url = m3u8_matches[0]  # take the first match
+            updated_lectures[course_name].append((title, m3u8_url))
 
     return updated_lectures

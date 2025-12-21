@@ -109,7 +109,15 @@
                         </div>
                         
                         <div id="lecturesList" class="lectures-list">
-                            <!-- Lectures will be populated here -->
+                            <div id="sortToggle" class="sort-toggle">
+                                <button id="sortButton" class="sort-button" title="Toggle sort order">
+                                    <span class="sort-icon">↑</span>
+                                    <span class="sort-text">Asc</span>
+                                </button>
+                            </div>
+                            <div id="lecturesContent" class="lectures-content">
+                                <!-- Lectures will be populated here -->
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -122,7 +130,7 @@
                         <div class="form-group">
                             <label for="outputDir">Output Directory</label>
                             <div class="input-group">
-                                <input type="text" id="outputDir" readonly>
+                                <input type="text" id="outputDir" class="path-input" readonly title="">
                                 <button id="browseBtn" class="btn btn-secondary">Browse</button>
                             </div>
                         </div>
@@ -150,6 +158,32 @@
                     </div>
                 </section>
             </main>
+        </div>
+        
+        <!-- Download Dialog -->
+        <div id="downloadDialog" class="download-dialog" style="display: none;">
+            <div class="download-dialog-content">
+                <div class="download-dialog-header">
+                    <h3>Downloading Lectures</h3>
+                    <button id="closeDownloadDialog" class="close-btn">×</button>
+                </div>
+                <div class="download-dialog-body">
+                    <div class="download-info">
+                        <div id="downloadCourse" class="download-course"></div>
+                        <div id="downloadStreamTypes" class="download-stream-types"></div>
+                    </div>
+                    <div class="download-progress-section">
+                        <div class="progress-bar">
+                            <div id="dialogProgressFill" class="progress-fill"></div>
+                        </div>
+                        <div id="dialogProgressText" class="progress-text">0%</div>
+                        <div id="dialogProgressMessage" class="progress-message">Preparing downloads...</div>
+                    </div>
+                    <div id="downloadLogs" class="download-logs">
+                        <!-- Download progress logs will appear here -->
+                    </div>
+                </div>
+            </div>
         </div>
         
         <!-- Loading Overlay -->
