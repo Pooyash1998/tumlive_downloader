@@ -118,35 +118,66 @@ def login():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-@app.route('/api/lectures', methods=['GET'])
-def get_lectures():
-    """Get lectures for all courses"""
+@app.route('/api/courses', methods=['GET'])
+def get_courses_list():
+    """Get list of available courses"""
     global driver, courses
     
     if not driver or not courses:
         return jsonify({"error": "Not logged in"}), 401
     
     try:
-        lectures = get_lecture_urls(driver, courses)
+        # Format courses for frontend
+        formatted_courses = []
+        for course_name, course_url in courses:
+            formatted_courses.append({
+                "name": course_name,
+                "url": course_url
+            })
+        
+        return jsonify({"courses": formatted_courses})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/lectures/<course_name>', methods=['GET'])
+def get_course_lectures(course_name):
+    """Get lectures for a specific course"""
+    global driver, courses
+    
+    if not driver or not courses:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    try:
+        # Find the course
+        selected_course = None
+        for name, url in courses:
+            if name == course_name:
+                selected_course = (name, url)
+                break
+        
+        if not selected_course:
+            return jsonify({"error": "Course not found"}), 404
+        
+        # Get lectures for this specific course
+        lectures = get_lecture_urls(driver, [selected_course])
+        course_lectures = lectures.get(course_name, [])
         
         # Format lectures for frontend
         formatted_lectures = []
-        for course_name, lecture_list in lectures.items():
-            for lecture_id, lecture_url in lecture_list:
-                for camera_type in ["COMB", "PRES", "CAM"]:
-                    formatted_lectures.append({
-                        "id": f"{course_name}:{lecture_id}:{camera_type}",
-                        "courseName": course_name,
-                        "lectureId": lecture_id,
-                        "lectureUrl": lecture_url,
-                        "cameraType": camera_type,
-                        "displayName": f"{course_name} - {lecture_id}",
-                        "date": "",
-                        "weekNumber": "",
-                        "dayOfWeek": "",
-                        "duration": "",
-                        "semester": ""
-                    })
+        for lecture in course_lectures:
+            for camera_type in ["COMB", "PRES", "CAM"]:
+                formatted_lectures.append({
+                    "id": f"{course_name}:{lecture['id']}:{camera_type}",
+                    "lectureId": lecture['id'],
+                    "title": lecture['title'],
+                    "date": lecture['date'].isoformat(),
+                    "time": lecture['time'].strftime("%H:%M"),
+                    "weekday": lecture['weekday'],
+                    "week": lecture['week'],
+                    "cameraType": camera_type,
+                    "url": lecture['url'],
+                    "courseName": course_name
+                })
         
         return jsonify({"lectures": formatted_lectures})
     except Exception as e:

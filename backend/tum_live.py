@@ -7,6 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 import os
+from datetime import datetime
 import re
 
 def login(tum_username: str, tum_password: str) -> WebDriver:
@@ -64,29 +65,76 @@ def get_courses(tum_username: str, tum_password: str) -> tuple[WebDriver, List[t
     print('\n'.join(course_names_only))
     return (driver,courses)
 
-def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[str, List[tuple[str, str]]]:
-    ''' return all lecture links for a all courses
-        {
-            "Course Name": [
-                (lecture_id, url),
-                ...
-            ],
-            ...
-        }
-    '''
-    lectures: Dict[str, List[tuple[str, str]]] = {}
+def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[str, List[dict]]:
+    lectures: Dict[str, List[dict]] = {}
+
     for course_name, course_url in courses:
         driver.get(course_url)
-        sleep(1)
-        page_html = driver.page_source
-        pattern = r'<a\s+[^>]*:href="course\.WatchURL\(vod\.ID\)"[^>]*href="(/w/[^"]+/(\d+))"'
-        matches = re.findall(pattern, page_html)
-        for href, vod_id in matches:
-            full_url = f"https://live.rbg.tum.de{href}"
-            lec_id= href.split('/')[-1].replace('"','')
-            lectures.setdefault(course_name, []).append((lec_id, full_url))
-    return lectures
+        sleep(2)  # let the page load
 
+        # Toggle Week View if not active
+        try:
+            week_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Week View')]")
+            if "active" not in week_btn.get_attribute("class"):
+                week_btn.click()
+                sleep(1)  # small wait for DOM to update
+        except NoSuchElementException:
+            print(f"No Week View button found for course {course_name}, skipping...")
+            lectures[course_name] = []
+            continue
+
+        # Wait for the course's week sections to appear
+        try:
+            week_sections = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located(
+                    (By.CSS_SELECTOR, "section.tum-live-course-view-item > section > article > article")
+                )
+            )
+        except TimeoutException:
+            print(f"No week articles found for course {course_name}.")
+            lectures[course_name] = []
+            continue
+
+        lectures[course_name] = []
+
+        for week_article in week_sections:
+            # Get week header
+            try:
+                week_header = week_article.find_element(By.CSS_SELECTOR, "header > h6")
+                week_number = week_header.text.strip()
+            except NoSuchElementException:
+                week_number = "Unknown"
+
+            # Find all VOD cards inside this week article
+            vod_cards = week_article.find_elements(By.CSS_SELECTOR, "article.tum-live-stream")
+            if not vod_cards:
+                continue
+
+            for card in vod_cards:
+                try:
+                    url = card.find_element(By.CSS_SELECTOR, "a[href*='/w/']").get_attribute("href")
+                    vod_id = url.rstrip("/").split("/")[-1]
+
+                    title_elements = card.find_elements(By.CSS_SELECTOR, "a.title")
+                    title = title_elements[0].text.strip() if title_elements else "No Title"
+
+                    date_text = card.find_element(By.CSS_SELECTOR, "span.date").text.strip()
+                    weekday, rest = date_text.split(", ", 1)
+                    dt = datetime.strptime(rest, "%m/%d/%Y, %I:%M %p")
+
+                    lectures[course_name].append({
+                        "id": vod_id,
+                        "url": url,
+                        "title": title,
+                        "date": dt.date(),
+                        "time": dt.time(),
+                        "weekday": weekday,
+                        "week": week_number
+                    })
+                except Exception as e:
+                    print(f"Error parsing VOD card: {e}")
+
+    return lectures
 def get_playlist_url(driver : WebDriver, lectures: Dict[str, List[tuple[str, str]]], stream_type: str = "COMB") -> Dict[str, List[tuple[str, str]]] :
     # stream_type: "COMB", "CAM", or "PRES"
     updated_lectures: Dict[str, List[tuple[str, str]]] = {}

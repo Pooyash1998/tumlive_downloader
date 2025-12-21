@@ -61,11 +61,24 @@
             </header>
             
             <main class="app-main">
-                <!-- Lectures Section -->
-                <section class="lectures-section">
+                <!-- Course Selection Section -->
+                <section id="courseSelection" class="course-selection">
                     <div class="section-header">
-                        <h2>Available Lectures</h2>
-                        <div id="lecturesStatus" class="status">Loading...</div>
+                        <h2>Select Course</h2>
+                        <div id="coursesStatus" class="status">Loading courses...</div>
+                    </div>
+                    
+                    <div class="courses-grid" id="coursesGrid">
+                        <!-- Courses will be populated here -->
+                    </div>
+                </section>
+                
+                <!-- Lectures Section (hidden initially) -->
+                <section id="lecturesSection" class="lectures-section" style="display: none;">
+                    <div class="section-header">
+                        <button id="backToCourses" class="btn btn-secondary">← Back to Courses</button>
+                        <h2 id="selectedCourseName">Course Lectures</h2>
+                        <div id="lecturesStatus" class="status">Loading lectures...</div>
                     </div>
                     
                     <div class="lectures-container">
@@ -75,9 +88,6 @@
                                 <label for="selectAll">Select All</label>
                             </div>
                             <div class="filters">
-                                <select id="courseFilter">
-                                    <option value="">All Courses</option>
-                                </select>
                                 <select id="weekFilter">
                                     <option value="">All Weeks</option>
                                 </select>
@@ -89,6 +99,11 @@
                                     <option value="COMB">Combined</option>
                                     <option value="PRES">Presentation</option>
                                     <option value="CAM">Camera</option>
+                                </select>
+                                <select id="groupBy">
+                                    <option value="">No Grouping</option>
+                                    <option value="week">Group by Week</option>
+                                    <option value="day">Group by Day</option>
                                 </select>
                             </div>
                         </div>
