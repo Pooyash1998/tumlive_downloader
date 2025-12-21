@@ -10,6 +10,7 @@ A modern desktop application for downloading TUM Live lectures with a beautiful 
 - 🎥 **Multiple Camera Types** - COMB, PRES, CAM support
 - 📊 **Progress Tracking** - Real-time download progress
 - ⚡ **Fast Downloads** - Parallel downloading support
+- ➕ **Manual Courses** - Add courses from previous semesters not shown in current account
 
 ## Setup
 
@@ -55,7 +56,22 @@ Temp-Dir: "./tmp"
 Maximum-Parallel-Downloads: 3
 Keep-Original-File: true
 Jumpcut: true
+
+# Manual courses (optional)
+# Add courses from previous semesters that aren't shown in your current account
+Manual-Courses:
+  "Machine Learning": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ML&view=3"
+  "Deep Learning": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_DL&view=3"
 ```
+
+### Manual Courses
+
+You can add courses from previous semesters that aren't shown in your current TUM account in two ways:
+
+1. **Via Config File**: Add them to the `Manual-Courses` section in `config.yml`
+2. **Via GUI**: Use the "Add Manual Course" button in the course selection screen
+
+Manual courses appear with a blue dashed border and "MANUAL" badge. You can remove them by hovering over the course card and clicking the red × button.
 
 ## Building
 
@@ -89,9 +105,14 @@ npm run build
 
 - `GET /api/config` - Get configuration
 - `POST /api/login` - Login and get courses
-- `GET /api/lectures` - Get available lectures
+- `GET /api/courses` - Get available courses
+- `GET /api/lectures/<course_name>` - Get lectures for specific course
 - `POST /api/download` - Start download
 - `GET /api/download/status` - Get download status
+- `GET /api/download/progress` - Get detailed download progress
+- `POST /api/browse-folder` - Open folder browser
+- `POST /api/manual-course` - Add manual course
+- `DELETE /api/manual-course/<course_name>` - Remove manual course
 - `POST /api/logout` - Logout
 
 ## Development

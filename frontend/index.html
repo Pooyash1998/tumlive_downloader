@@ -65,7 +65,10 @@
                 <section id="courseSelection" class="course-selection">
                     <div class="section-header">
                         <h2>Select Course</h2>
-                        <div id="coursesStatus" class="status">Loading courses...</div>
+                        <div class="header-actions">
+                            <button id="addManualCourseBtn" class="btn btn-secondary">+ Add Course</button>
+                            <div id="coursesStatus" class="status">Loading courses...</div>
+                        </div>
                     </div>
                     
                     <div class="courses-grid" id="coursesGrid">
@@ -199,6 +202,36 @@
                     <div id="downloadLogs" class="download-logs">
                         <!-- Individual lecture progress bars will appear here -->
                     </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Manual Course Dialog -->
+        <div id="manualCourseDialog" class="modal-dialog" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Manual Course</h3>
+                    <button id="closeManualCourseDialog" class="close-btn" title="Close">×</button>
+                </div>
+                <div class="modal-body">
+                    <p>Add a course from previous semesters that's not shown in your current account by providing its name and TUM Live URL.</p>
+                    
+                    <div class="form-group">
+                        <label for="manualCourseName">Course Name</label>
+                        <input type="text" id="manualCourseName" placeholder="e.g., Machine Learning" maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="manualCourseUrl">Course URL</label>
+                        <input type="url" id="manualCourseUrl" placeholder="https://live.rbg.tum.de/?year=2025&term=W&slug=...">
+                        <small class="form-help">Must be a valid TUM Live course URL</small>
+                    </div>
+                    
+                    <div id="manualCourseStatus" class="status-message"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cancelManualCourse" class="btn btn-secondary">Cancel</button>
+                    <button id="addManualCourse" class="btn btn-primary">Add Course</button>
                 </div>
             </div>
         </div>

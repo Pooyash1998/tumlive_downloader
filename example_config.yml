@@ -1,10 +1,15 @@
-#TUM-live:
- # "ML": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ML&view=3"
- # "IDL": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ItDL&view=3"
-#
-Username: "go42tum"
-Password: "hunter2"
+# TUM Live Downloader Configuration
 
+# Login credentials
+Username: "go55tum"
+Password: "johndoe"
+
+# Output settings
 Output-Folder: "/output"
-
 Maximum-Parallel-Downloads: 3
+
+# Manual courses (courses from previous semesters not shown in current account)
+# Add courses from older semesters that you want to download
+Manual-Courses:
+  "Machine Learning": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ML&view=3"
+  "Introduction to Deep Learning": "https://live.rbg.tum.de/?year=2025&term=W&slug=WiSe25_26_ItDL&view=3"

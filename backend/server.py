@@ -63,6 +63,14 @@ def parse_maximum_parallel_downloads(cfg) -> int:
     """Parse maximum parallel downloads from config"""
     return cfg.get('Maximum-Parallel-Downloads', 3)
 
+def parse_manual_courses(cfg) -> list[tuple[str, str]]:
+    """Parse manual courses from config"""
+    manual_courses = []
+    if 'Manual-Courses' in cfg and cfg['Manual-Courses']:
+        for course_name, course_url in cfg['Manual-Courses'].items():
+            manual_courses.append((course_name, course_url))
+    return manual_courses
+
 driver = None
 courses = []
 all_lectures = {}
@@ -80,11 +88,17 @@ def get_config():
     """Get configuration"""
     global config
     config = load_config_file()
+    
+    # Get manual courses using the parser function
+    manual_courses_tuples = parse_manual_courses(config)
+    manual_courses = [{"name": name, "url": url} for name, url in manual_courses_tuples]
+    
     return jsonify({
         "username": config.get('Username', ''),
         "hasCredentials": bool(config.get('Username') and config.get('Password')),
         "outputDir": str(parse_destination_folder(config)),
-        "maxDownloads": parse_maximum_parallel_downloads(config)
+        "maxDownloads": parse_maximum_parallel_downloads(config),
+        "manualCourses": manual_courses
     })
 
 @app.route('/api/login', methods=['POST'])
@@ -110,7 +124,11 @@ def login():
     try:
         driver, courses = get_courses(username, password)
         
-        # Fetch ALL lectures for ALL courses at once
+        # Add manual courses from config using the parser function
+        manual_courses_tuples = parse_manual_courses(config)
+        courses.extend(manual_courses_tuples)
+        
+        # Fetch ALL lectures for ALL courses at once (including manual ones)
         all_lectures = get_lecture_urls(driver, courses)
         
         return jsonify({
@@ -123,18 +141,23 @@ def login():
 @app.route('/api/courses', methods=['GET'])
 def get_courses_list():
     """Get list of available courses"""
-    global driver, courses
+    global driver, courses, config
     
     if not driver or not courses:
         return jsonify({"error": "Not logged in"}), 401
     
     try:
+        # Get manual course names using the parser function
+        manual_courses_tuples = parse_manual_courses(config)
+        manual_course_names = {name for name, url in manual_courses_tuples}
+        
         # Format courses for frontend
         formatted_courses = []
         for course_name, course_url in courses:
             formatted_courses.append({
                 "name": course_name,
-                "url": course_url
+                "url": course_url,
+                "isManual": course_name in manual_course_names
             })
         
         return jsonify({"courses": formatted_courses})
@@ -406,6 +429,101 @@ def browse_folder():
         return jsonify({"success": False, "error": "Dialog timeout"}), 500
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/manual-course', methods=['POST'])
+def add_manual_course():
+    """Add a manual course"""
+    global courses, all_lectures, driver, config
+    
+    data = request.json
+    course_name = data.get('courseName', '').strip()
+    course_url = data.get('courseUrl', '').strip()
+    
+    if not course_name or not course_url:
+        return jsonify({"error": "Course name and URL are required"}), 400
+    
+    if not driver:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    # Validate URL format
+    if not course_url.startswith('https://live.rbg.tum.de/'):
+        return jsonify({"error": "URL must be a valid TUM Live URL"}), 400
+    
+    try:
+        # Load current config
+        config = load_config_file()
+        
+        # Initialize Manual-Courses if it doesn't exist
+        if 'Manual-Courses' not in config:
+            config['Manual-Courses'] = {}
+        
+        # Check if course already exists
+        if course_name in config['Manual-Courses']:
+            return jsonify({"error": "Course with this name already exists"}), 400
+        
+        # Add the course to config
+        config['Manual-Courses'][course_name] = course_url
+        
+        # Save config
+        config_path = Path("config.yml")
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+        
+        # Add to current courses list
+        courses.append((course_name, course_url))
+        
+        # Fetch lectures for this new course
+        try:
+            new_course_lectures = get_lecture_urls(driver, [(course_name, course_url)])
+            all_lectures.update(new_course_lectures)
+        except Exception as e:
+            print(f"Warning: Could not fetch lectures for manual course {course_name}: {e}")
+            all_lectures[course_name] = []
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Course '{course_name}' added successfully",
+            "course": {"name": course_name, "url": course_url}
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to add course: {str(e)}"}), 500
+
+@app.route('/api/manual-course/<course_name>', methods=['DELETE'])
+def remove_manual_course(course_name):
+    """Remove a manual course"""
+    global courses, all_lectures, config
+    
+    try:
+        # Load current config
+        config = load_config_file()
+        
+        if 'Manual-Courses' not in config or course_name not in config['Manual-Courses']:
+            return jsonify({"error": "Manual course not found"}), 404
+        
+        # Remove from config
+        del config['Manual-Courses'][course_name]
+        
+        # Save config
+        config_path = Path("config.yml")
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+        
+        # Remove from current courses list
+        courses = [(name, url) for name, url in courses if name != course_name]
+        
+        # Remove from lectures cache
+        if course_name in all_lectures:
+            del all_lectures[course_name]
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Course '{course_name}' removed successfully"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to remove course: {str(e)}"}), 500
+
 def logout():
     """Logout and cleanup"""
     global driver, courses, all_lectures

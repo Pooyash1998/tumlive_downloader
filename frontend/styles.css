@@ -1116,3 +1116,169 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #86868b;
 }
+/* Manual Course Management */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.course-card {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.course-card.manual {
+    border: 2px dashed #007aff;
+    background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+    padding-top: 30px; /* Add extra padding to make room for badge */
+}
+
+.course-card.manual h3 {
+    margin-top: 5px; /* Add some space below the badge */
+}
+
+.course-card.manual:hover {
+    border-color: #0056cc;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 122, 255, 0.15);
+}
+
+.course-card .course-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #007aff;
+    color: white;
+    padding: 3px 6px;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    z-index: 5;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.course-card .remove-course {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: #ff3b30;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    z-index: 10;
+}
+
+.course-card .remove-course:hover {
+    background: #d70015;
+    transform: scale(1.1);
+}
+
+.course-card.manual:hover .remove-course {
+    display: flex;
+}
+
+/* Modal Dialog */
+.modal-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e5e7;
+}
+
+.modal-header h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #1d1d1f;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-body p {
+    color: #86868b;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid #e5e5e7;
+    background: #f5f5f7;
+    border-radius: 0 0 12px 12px;
+}
+
+.form-help {
+    display: block;
+    color: #86868b;
+    font-size: 0.85rem;
+    margin-top: 5px;
+}
+
+/* Close button */
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #86868b;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+    background: #f5f5f7;
+    color: #1d1d1f;
+}

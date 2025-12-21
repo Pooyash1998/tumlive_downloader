@@ -84,6 +84,12 @@ function setupEventListeners() {
     document.getElementById('closeDownloadDialog').addEventListener('click', closeDownloadDialog);
     document.getElementById('restoreDownloadDialog').addEventListener('click', restoreDownloadDialog);
     
+    // Manual course management
+    document.getElementById('addManualCourseBtn').addEventListener('click', showManualCourseDialog);
+    document.getElementById('closeManualCourseDialog').addEventListener('click', hideManualCourseDialog);
+    document.getElementById('cancelManualCourse').addEventListener('click', hideManualCourseDialog);
+    document.getElementById('addManualCourse').addEventListener('click', handleAddManualCourse);
+    
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
     
@@ -270,13 +276,24 @@ function populateCourses(courseList) {
     
     courseList.forEach(course => {
         const card = document.createElement('div');
-        card.className = 'course-card';
-        card.innerHTML = `
-            <h3>${course.name}</h3>
-            <p>Click to view lectures</p>
-        `;
+        card.className = `course-card ${course.isManual ? 'manual' : ''}`;
         
-        card.addEventListener('click', () => {
+        let cardContent = `<h3>${course.name}</h3><p>Click to view lectures</p>`;
+        
+        if (course.isManual) {
+            cardContent = `
+                <button class="remove-course" onclick="handleRemoveManualCourse('${course.name}')" title="Remove manual course">×</button>
+                <div class="course-badge">Manual</div>
+                <h3>${course.name}</h3>
+                <p>Previous semester • Click to view lectures</p>
+            `;
+        }
+        
+        card.innerHTML = cardContent;
+        
+        card.addEventListener('click', (e) => {
+            // Don't trigger if clicking remove button
+            if (e.target.classList.contains('remove-course')) return;
             loadCourseLectures(course.name);
         });
         
@@ -924,3 +941,98 @@ function showStatus(elementId, message, type) {
         }, 5000);
     }
 }
+// Manual Course Management Functions
+
+// Show manual course dialog
+function showManualCourseDialog() {
+    document.getElementById('manualCourseDialog').style.display = 'flex';
+    document.getElementById('manualCourseName').value = '';
+    document.getElementById('manualCourseUrl').value = '';
+    document.getElementById('manualCourseStatus').style.display = 'none';
+    document.getElementById('manualCourseName').focus();
+}
+
+// Hide manual course dialog
+function hideManualCourseDialog() {
+    document.getElementById('manualCourseDialog').style.display = 'none';
+}
+
+// Handle adding manual course
+async function handleAddManualCourse() {
+    const courseName = document.getElementById('manualCourseName').value.trim();
+    const courseUrl = document.getElementById('manualCourseUrl').value.trim();
+    
+    if (!courseName || !courseUrl) {
+        showStatus('manualCourseStatus', 'Please fill in both course name and URL', 'error');
+        return;
+    }
+    
+    if (!courseUrl.startsWith('https://live.rbg.tum.de/')) {
+        showStatus('manualCourseStatus', 'URL must be a valid TUM Live URL', 'error');
+        return;
+    }
+    
+    const addBtn = document.getElementById('addManualCourse');
+    addBtn.disabled = true;
+    addBtn.textContent = 'Adding...';
+    
+    try {
+        const response = await fetch(`${API_BASE}/manual-course`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                courseName: courseName,
+                courseUrl: courseUrl
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showStatus('manualCourseStatus', data.message, 'success');
+            
+            // Refresh courses list
+            await loadCourses();
+            
+            // Close dialog after a short delay
+            setTimeout(() => {
+                hideManualCourseDialog();
+            }, 1500);
+        } else {
+            showStatus('manualCourseStatus', data.error || 'Failed to add course', 'error');
+        }
+    } catch (error) {
+        showStatus('manualCourseStatus', 'Connection error. Please try again.', 'error');
+    } finally {
+        addBtn.disabled = false;
+        addBtn.textContent = 'Add Course';
+    }
+}
+
+// Handle removing manual course
+async function handleRemoveManualCourse(courseName) {
+    if (!confirm(`Are you sure you want to remove the manual course "${courseName}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/manual-course/${encodeURIComponent(courseName)}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Refresh courses list
+            await loadCourses();
+            showStatus('coursesStatus', data.message, 'success');
+        } else {
+            showStatus('coursesStatus', data.error || 'Failed to remove course', 'error');
+        }
+    } catch (error) {
+        showStatus('coursesStatus', 'Connection error. Please try again.', 'error');
+    }
+}
+
+// Make function globally available for onclick handler
+window.handleRemoveManualCourse = handleRemoveManualCourse;
