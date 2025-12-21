@@ -32,7 +32,7 @@
       "node_modules/**/*"
     ],
     "mac": {
-      "icon": "icon.iconset/icon.png",
+      "icon": "app.icns",
       "category": "public.app-category.education",
       "target": [
         {
@@ -50,7 +50,7 @@
     },
     "dmg": {
       "title": "TUM Live Downloader",
-      "icon": "icon.iconset/icon.png",
+      "icon": "app.icns",
       "background": null,
       "contents": [
         {

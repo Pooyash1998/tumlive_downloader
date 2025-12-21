@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, nativeImage } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -6,12 +6,23 @@ let mainWindow;
 let pythonProcess;
 
 function createWindow() {
+  // Try PNG first, then icns
+  const pngPath = path.join(__dirname, '../icon.iconset/icon.png');
+  const icnsPath = path.join(__dirname, '../app.icns');
+  
+  console.log('PNG path:', pngPath);
+  console.log('ICNS path:', icnsPath);
+  
+  // Create native image from PNG (more reliable)
+  const icon = nativeImage.createFromPath(pngPath);
+  console.log('Icon loaded:', !icon.isEmpty());
+  
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    icon: path.join(__dirname, '../icon.iconset/icon.png'),
+    icon: icon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -21,6 +32,11 @@ function createWindow() {
     movable: true,
     show: false
   });
+
+  // Set dock icon on macOS
+  if (process.platform === 'darwin') {
+    app.dock.setIcon(icon);
+  }
 
   // Start Python backend
   startPythonBackend();
@@ -60,7 +76,13 @@ function startPythonBackend() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // Set app icon
+  if (process.platform !== 'darwin') {
+    app.setAppUserModelId('com.tumlive.downloader');
+  }
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
