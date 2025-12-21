@@ -6,12 +6,15 @@
   "scripts": {
     "start": "electron .",
     "dev": "concurrently \"python backend/server.py\" \"wait-on http://127.0.0.1:5001/health && electron . --dev\"",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:mac-dmg": "electron-builder --mac dmg",
+    "build:mac-zip": "electron-builder --mac zip"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.0.0",
     "concurrently": "^8.0.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3",
     "wait-on": "^7.0.1"
   },
   "build": {
@@ -27,6 +30,44 @@
       "*.py",
       "*.yml",
       "node_modules/**/*"
-    ]
+    ],
+    "mac": {
+      "icon": "icon.iconset/icon.png",
+      "category": "public.app-category.education",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "notarize": false
+    },
+    "dmg": {
+      "title": "TUM Live Downloader",
+      "icon": "icon.iconset/icon.png",
+      "background": null,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
   }
 }

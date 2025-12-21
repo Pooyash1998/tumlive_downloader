@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  tumlive-downloader:
+    build: .
+    container_name: tumlive-downloader
+    ports:
+      - "8080:80"    # Web interface
+      - "5001:5001"  # Flask backend (optional, for direct API access)
+    volumes:
+      - ./downloads:/app/downloads  # Mount downloads directory
+      - ./config.yml:/app/config.yml:ro  # Mount config file (read-only, optional)
+    environment:
+      - DISPLAY=:99
+      - PYTHONPATH=/app
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

@@ -10,7 +10,7 @@ I initially built a CLI tool, but it quickly became impractical for daily use. T
 
 The goal is simple: reliable offline access to TUM Live lectures.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -22,13 +22,42 @@ The goal is simple: reliable offline access to TUM Live lectures.
 
 ### Installation
 
-You can run **TUM Live Downloader** either manually using Conda and npm, or using docker.
+You can run **TUM Live Downloader** either manually using Conda and npm, or using Docker.
 
-#### 🔧 Manual Installation (Recommended)
+#### 🐳 Docker Installation (Recommended for Server/Headless)
 
 1️⃣ **Clone the repository**
 ```bash
-git clone <repository-url>
+git clone https://github.com/Pooyash1998/tumlive_downloader.git
+cd tumlive_downloader
+```
+
+2️⃣ **Create config file (optional)**
+```bash
+cp example_config.yml config.yml
+# Edit config.yml with your credentials
+```
+
+3️⃣ **Build and run with Docker Compose**
+```bash
+docker-compose up -d
+```
+
+4️⃣ **Access the web interface**
+- **Web Interface**: http://localhost:8080
+- **API Backend**: http://localhost:5001 (optional)
+
+**Docker Features:**
+- 🌐 **Web Interface**: Access through any browser
+- 🔄 **Auto-restart**: Container restarts automatically
+- 📁 **Volume Mounting**: Downloads saved to `./downloads/`
+- 🏥 **Health Checks**: Automatic container health monitoring
+
+#### 🔧 Manual Installation (Recommended for Desktop)
+
+1️⃣ **Clone the repository**
+```bash
+git clone https://github.com/Pooyash1998/tumlive_downloader.git
 cd tumlive_downloader
 ```
 
@@ -75,7 +104,7 @@ npm start
 > - Disable AirPlay Receiver in **System Settings → General → AirDrop & Handoff**
 > - Or the app will automatically fall back to port 5001
 
-## ⚙️ Configuration
+## Configuration
 
 Create a `config.yml` file in the root directory using the given `example_config.yml`:
 
@@ -109,11 +138,11 @@ Add courses from previous semesters in two ways:
 2. **GUI**: Click "Add Manual Course" button (session-only, removable)
 
 Manual courses appear with:
-- 🔵 Blue dashed border
-- 📌 "MANUAL" badge
-- ❌ Remove button (for session-added courses only)
+- Blue dashed border
+- "MANUAL" badge
+- Remove button (for session-added courses only)
 
-## 📱 User Interface
+## User Interface
 
 ### Course Selection
 - **Grid Layout**: Visual course cards with hover effects
@@ -135,7 +164,7 @@ Manual courses appear with:
 - **Live Updates**: Segment-by-segment progress with rates
 - **Minimizable Dialog**: Continue working while downloading
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -167,7 +196,7 @@ downloads/
     └── ...
 ```
 
-## 🔧 Advanced Features
+## Advanced Features
 
 ### Download Management
 - **Parallel Processing**: 1-16 simultaneous downloads
@@ -180,7 +209,7 @@ downloads/
 - **File Cleanup**: Removes temp files, lock files, partial downloads
 - **Nuclear Option**: Aggressive cleanup for stubborn processes
 
-## 🛠️ Development
+## Development
 
 ### Project Structure
 ```
@@ -213,7 +242,7 @@ downloads/
 | `DELETE` | `/api/manual-course/<name>` | Remove manual course |
 | `POST` | `/api/browse-folder` | Open native folder picker |
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -243,7 +272,7 @@ Enable debug logging by setting environment variable:
 DEBUG=1 npm run dev
 ```
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
@@ -258,5 +287,5 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## 🔗 Links
 
 - **TUM Live**: https://live.rbg.tum.de/
-- **GitHub**: [Repository Link]
-- **Issues**: [Issues Page]
+- **GitHub**: https://github.com/Pooyash1998/tumlive_downloader
+- **Issues**: https://github.com/Pooyash1998/tumlive_downloader/issues
