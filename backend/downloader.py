@@ -237,3 +237,35 @@ def download(filename: str, playlist_url: str,
     Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
     shutil.rmtree(ts_folder)  # Remove ts folder
     semaphore.release()  # Release lock
+
+def cleanup_all_temp_files():
+    """Clean up all temporary files and folders created by downloader"""
+    try:
+        import tempfile
+        import shutil
+        
+        temp_dir = Path(tempfile.gettempdir())
+        
+        # Remove progress file
+        progress_file = temp_dir / "tum_download_progress.json"
+        if progress_file.exists():
+            progress_file.unlink()
+            print(f"Removed progress file: {progress_file}")
+        
+        # Remove any tum_video_scraper temp folders
+        tum_temp_dir = temp_dir / "tum_video_scraper"
+        if tum_temp_dir.exists():
+            shutil.rmtree(tum_temp_dir)
+            print(f"Removed temp directory: {tum_temp_dir}")
+            
+        # Remove any _ts folders in temp directory
+        for item in temp_dir.iterdir():
+            if item.is_dir() and item.name.endswith('_ts'):
+                try:
+                    shutil.rmtree(item)
+                    print(f"Removed temp folder: {item}")
+                except Exception as e:
+                    print(f"Failed to remove temp folder {item}: {e}")
+                    
+    except Exception as e:
+        print(f"Error cleaning up temp files: {e}")

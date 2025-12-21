@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -78,4 +78,9 @@ app.on('before-quit', () => {
   if (pythonProcess) {
     pythonProcess.kill();
   }
+});
+
+// Handle external links
+ipcMain.handle('open-external', async (event, url) => {
+  await shell.openExternal(url);
 });

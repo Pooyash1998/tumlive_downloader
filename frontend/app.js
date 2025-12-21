@@ -713,12 +713,41 @@ function restoreDownloadDialog() {
 }
 
 // Close download dialog
-function closeDownloadDialog() {
-    document.getElementById('downloadDialog').style.display = 'none';
-    document.getElementById('minimizedDownloadStatus').style.display = 'none';
-    
-    // Only re-enable download button if not actively downloading
-    if (!isDownloading) {
+async function closeDownloadDialog() {
+    // If download is active, ask for confirmation to cancel
+    if (isDownloading) {
+        const confirmCancel = confirm('Download is in progress. Do you want to cancel the download?');
+        
+        if (!confirmCancel) {
+            return; // User chose not to cancel
+        }
+        
+        // Cancel the download
+        try {
+            const response = await fetch(`${API_BASE}/download/cancel`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                isDownloading = false;
+                updateDownloadButtonState();
+                
+                // Hide dialogs
+                document.getElementById('downloadDialog').style.display = 'none';
+                document.getElementById('minimizedDownloadStatus').style.display = 'none';
+                
+                showStatus('downloadStatus', 'Download cancelled', 'info');
+            } else {
+                const data = await response.json();
+                showStatus('downloadStatus', data.error || 'Failed to cancel download', 'error');
+            }
+        } catch (error) {
+            showStatus('downloadStatus', 'Error cancelling download', 'error');
+        }
+    } else {
+        // No active download, just close
+        document.getElementById('downloadDialog').style.display = 'none';
+        document.getElementById('minimizedDownloadStatus').style.display = 'none';
         updateDownloadButtonState();
     }
 }
@@ -782,6 +811,19 @@ async function pollDownloadStatusDialog() {
                 setTimeout(() => {
                     closeDownloadDialog();
                 }, 3000);
+                
+            } else if (overall.status === 'cancelled') {
+                clearInterval(interval);
+                document.getElementById('dialogProgressMessage').textContent = 'Download cancelled';
+                
+                // Re-enable download button
+                isDownloading = false;
+                updateDownloadButtonState();
+                
+                // Auto-close dialog after 2 seconds
+                setTimeout(() => {
+                    closeDownloadDialog();
+                }, 2000);
                 
             } else if (overall.status === 'error') {
                 clearInterval(interval);
@@ -1011,7 +1053,7 @@ async function handleAddManualCourse() {
 
 // Handle removing manual course
 async function handleRemoveManualCourse(courseName) {
-    if (!confirm(`Are you sure you want to remove the manual course "${courseName}"?`)) {
+    if (!confirm(`Are you sure you want to remove "${courseName}" from this session?\n\nNote: Only courses added during this session can be removed. Courses from config file are read-only.`)) {
         return;
     }
     
@@ -1036,3 +1078,18 @@ async function handleRemoveManualCourse(courseName) {
 
 // Make function globally available for onclick handler
 window.handleRemoveManualCourse = handleRemoveManualCourse;
+// Open external link in system browser (for Electron)
+function openExternalLink(event, url) {
+    event.preventDefault();
+    
+    // Check if we're in Electron
+    if (window.electronAPI && window.electronAPI.openExternal) {
+        window.electronAPI.openExternal(url);
+    } else {
+        // Fallback for web browser
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+}
+
+// Make function globally available
+window.openExternalLink = openExternalLink;

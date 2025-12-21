@@ -13,6 +13,9 @@ from pathlib import Path
 import yaml
 import tempfile
 from datetime import datetime
+import signal
+import psutil
+import shutil
 
 app = Flask(__name__)
 CORS(app)
@@ -77,6 +80,11 @@ all_lectures = {}
 config = {}
 download_status = {"status": "idle", "message": "", "progress": 0}
 lecture_progress = {}  # Track individual lecture progress
+session_manual_courses = []  # Track manual courses added during session (not saved to config)
+active_download_processes = []  # Track active download processes for cancellation
+download_thread_active = None  # Track the main download thread
+current_download_semaphore = None  # Track current semaphore for cleanup
+download_cancelled = False  # Flag to prevent new processes during cancellation
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -86,12 +94,15 @@ def health_check():
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """Get configuration"""
-    global config
+    global config, session_manual_courses
     config = load_config_file()
     
-    # Get manual courses using the parser function
-    manual_courses_tuples = parse_manual_courses(config)
-    manual_courses = [{"name": name, "url": url} for name, url in manual_courses_tuples]
+    # Get manual courses from config (read-only)
+    config_manual_courses = parse_manual_courses(config)
+    
+    # Combine config manual courses with session manual courses
+    all_manual_courses = config_manual_courses + session_manual_courses
+    manual_courses = [{"name": name, "url": url} for name, url in all_manual_courses]
     
     return jsonify({
         "username": config.get('Username', ''),
@@ -124,9 +135,10 @@ def login():
     try:
         driver, courses = get_courses(username, password)
         
-        # Add manual courses from config using the parser function
-        manual_courses_tuples = parse_manual_courses(config)
-        courses.extend(manual_courses_tuples)
+        # Add manual courses from config (read-only) and session
+        config_manual_courses = parse_manual_courses(config)
+        all_manual_courses = config_manual_courses + session_manual_courses
+        courses.extend(all_manual_courses)
         
         # Fetch ALL lectures for ALL courses at once (including manual ones)
         all_lectures = get_lecture_urls(driver, courses)
@@ -141,15 +153,16 @@ def login():
 @app.route('/api/courses', methods=['GET'])
 def get_courses_list():
     """Get list of available courses"""
-    global driver, courses, config
+    global driver, courses, config, session_manual_courses
     
     if not driver or not courses:
         return jsonify({"error": "Not logged in"}), 401
     
     try:
-        # Get manual course names using the parser function
-        manual_courses_tuples = parse_manual_courses(config)
-        manual_course_names = {name for name, url in manual_courses_tuples}
+        # Get manual course names from both config and session
+        config_manual_courses = parse_manual_courses(config)
+        all_manual_courses = config_manual_courses + session_manual_courses
+        manual_course_names = {name for name, url in all_manual_courses}
         
         # Format courses for frontend
         formatted_courses = []
@@ -225,10 +238,12 @@ def start_download():
         global download_status
         
         try:
+            download_cancelled = False  # Reset cancellation flag
             download_status = {"status": "downloading", "message": "Preparing downloads...", "progress": 0}
             
             # Create one semaphore for all downloads
             download_semaphore = Semaphore(max_parallel_downloads)
+            current_download_semaphore = download_semaphore  # Track for cleanup
             
             all_processes = []
             total_stream_types = len(lectures_by_stream_type)
@@ -267,6 +282,7 @@ def start_download():
                         download_semaphore        # semaphore: Semaphore (reuse same one)
                     )
                     all_processes.extend(processes)
+                    active_download_processes.extend(processes)  # Track for cancellation
             
             # Monitor download progress (remaining 90% progress)
             download_status = {"status": "downloading", "message": "Downloading videos...", "progress": 10}
@@ -278,7 +294,12 @@ def start_download():
             error_log_path = Path(output_dir) / "download_errors.log"
             
             # Monitor processes and get real progress
-            while all_processes:
+            while all_processes and not download_cancelled:
+                # Check if download was cancelled
+                if download_cancelled:
+                    print("Download cancellation detected in monitoring loop")
+                    break
+                
                 # Get real progress data from downloader
                 real_progress = downloader.get_progress_data()
                 
@@ -348,15 +369,24 @@ def start_download():
             
             # Clear lecture progress when done
             lecture_progress.clear()
+            active_download_processes.clear()  # Clear tracked processes
+            current_download_semaphore = None  # Clear semaphore reference
+            download_thread_active = None  # Clear thread reference
+            download_cancelled = False  # Reset cancellation flag
             download_status = {"status": "completed", "message": f"All {total_lectures} lectures downloaded successfully!", "progress": 100}
             
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             print(f"Download error: {error_details}")
+            active_download_processes.clear()  # Clear tracked processes on error
+            current_download_semaphore = None  # Clear semaphore reference
+            download_thread_active = None  # Clear thread reference
+            download_cancelled = False  # Reset cancellation flag
             download_status = {"status": "error", "message": f"Download failed: {str(e)}", "progress": 0}
     
-    threading.Thread(target=download_thread, daemon=True).start()
+    download_thread_active = threading.Thread(target=download_thread, daemon=True)
+    download_thread_active.start()
     
     return jsonify({"success": True, "message": "Download started"})
 
@@ -372,6 +402,262 @@ def get_download_progress():
         "overall": download_status,
         "lectures": lecture_progress
     })
+
+@app.route('/api/download/cancel', methods=['POST'])
+def cancel_download():
+    """Aggressively cancel active download and clean up everything"""
+    global download_status, lecture_progress, active_download_processes, download_thread_active, current_download_semaphore, download_cancelled
+    
+    try:
+        print("=== STARTING AGGRESSIVE DOWNLOAD CANCELLATION ===")
+        
+        # 0. Set cancellation flag to stop new processes
+        download_cancelled = True
+        
+        # 1. Kill all download processes aggressively
+        kill_all_download_processes()
+        
+        # 2. Wait for processes to actually die
+        print("Waiting for processes to die...")
+        time.sleep(2)
+        
+        # 3. Clean up semaphore
+        cleanup_semaphore()
+        
+        # 4. Clear all tracking variables
+        active_download_processes.clear()
+        download_thread_active = None
+        current_download_semaphore = None
+        
+        # 5. Clear progress data
+        downloader.clear_progress_data()
+        lecture_progress.clear()
+        
+        # 6. Wait a bit more before file cleanup
+        print("Waiting before file cleanup...")
+        time.sleep(1)
+        
+        # 7. Clean up all temporary files and lock files
+        aggressive_cleanup()
+        
+        # 8. Final verification - remove any lock files that might have been recreated
+        print("Final lock file cleanup...")
+        time.sleep(1)
+        final_lock_cleanup()
+        
+        # 9. Update status
+        download_status = {"status": "cancelled", "message": "Download cancelled and cleaned up", "progress": 0}
+        
+        print("=== DOWNLOAD CANCELLATION COMPLETED ===")
+        return jsonify({"success": True, "message": "Download cancelled and all resources cleaned up"})
+        
+    except Exception as e:
+        print(f"Error during cancellation: {e}")
+        return jsonify({"error": f"Failed to cancel download: {str(e)}"}), 500
+
+def kill_all_download_processes():
+    """Aggressively kill all download processes and their children"""
+    print("Killing all download processes...")
+    
+    killed_pids = set()
+    
+    # First pass: Kill all tracked processes and their children
+    for process in active_download_processes:
+        try:
+            if process.is_alive():
+                pid = process.pid
+                print(f"Killing process {pid}")
+                killed_pids.add(pid)
+                
+                # Get all child processes using psutil
+                try:
+                    parent = psutil.Process(pid)
+                    children = parent.children(recursive=True)
+                    
+                    # Kill all children first
+                    for child in children:
+                        try:
+                            child_pid = child.pid
+                            print(f"Killing child process {child_pid}")
+                            killed_pids.add(child_pid)
+                            child.kill()
+                            child.wait(timeout=3)  # Wait for child to die
+                        except psutil.TimeoutExpired:
+                            print(f"Child process {child_pid} didn't die, force killing")
+                            try:
+                                os.kill(child_pid, signal.SIGKILL)
+                            except:
+                                pass
+                        except Exception as e:
+                            print(f"Error killing child {child_pid}: {e}")
+                    
+                    # Kill parent
+                    parent.kill()
+                    parent.wait(timeout=3)  # Wait for parent to die
+                    
+                except psutil.TimeoutExpired:
+                    print(f"Process {pid} didn't die, force killing")
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except:
+                        pass
+                except psutil.NoSuchProcess:
+                    print(f"Process {pid} already dead")
+                except Exception as e:
+                    print(f"Error killing process {pid}: {e}")
+                    # Force kill using multiprocessing as fallback
+                    try:
+                        process.terminate()
+                        process.join(timeout=3)
+                        if process.is_alive():
+                            process.kill()
+                            process.join(timeout=2)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"Error handling process: {e}")
+    
+    # Second pass: Kill any remaining python processes related to downloading
+    print("Scanning for orphaned download processes...")
+    try:
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                pid = proc.info['pid']
+                if pid in killed_pids:
+                    continue  # Already killed
+                    
+                if proc.info['name'] in ['python', 'python3', 'Python']:
+                    cmdline = ' '.join(proc.info['cmdline'] or [])
+                    # Check if it's a download-related process
+                    if any(keyword in cmdline for keyword in ['downloader.py', 'tum_video_scraper', 'download_list_of_videos', 'ffmpeg']):
+                        print(f"Killing orphaned download process {pid}: {cmdline[:100]}")
+                        proc.kill()
+                        proc.wait(timeout=3)
+                        killed_pids.add(pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                pass
+            except Exception as e:
+                print(f"Error checking process: {e}")
+    except Exception as e:
+        print(f"Error scanning for orphaned processes: {e}")
+    
+    # Third pass: Wait a moment and verify all processes are dead
+    print("Verifying all processes are dead...")
+    time.sleep(1)
+    
+    for pid in killed_pids:
+        try:
+            if psutil.pid_exists(pid):
+                print(f"WARNING: Process {pid} still exists, force killing with SIGKILL")
+                os.kill(pid, signal.SIGKILL)
+        except:
+            pass
+    
+    print(f"Killed {len(killed_pids)} processes")
+
+def cleanup_semaphore():
+    """Clean up semaphore resources"""
+    global current_download_semaphore
+    
+    print("Cleaning up semaphore...")
+    if current_download_semaphore:
+        try:
+            # Release all semaphore resources
+            while True:
+                try:
+                    current_download_semaphore.release()
+                except:
+                    break
+        except Exception as e:
+            print(f"Error cleaning semaphore: {e}")
+        
+        current_download_semaphore = None
+
+def aggressive_cleanup():
+    """Aggressively clean up all temporary files and lock files"""
+    print("Starting aggressive cleanup...")
+    
+    try:
+        config = load_config_file()
+        output_dir = parse_destination_folder(config)
+        tmp_dir = parse_tmp_folder(config)
+        
+        # 1. Remove all .lock files
+        print("Removing lock files...")
+        for lock_file in output_dir.rglob("*.lock"):
+            try:
+                lock_file.unlink()
+                print(f"Removed lock file: {lock_file}")
+            except Exception as e:
+                print(f"Failed to remove lock file {lock_file}: {e}")
+        
+        # 2. Remove all temporary download folders
+        print("Removing temporary download folders...")
+        if tmp_dir.exists():
+            for item in tmp_dir.iterdir():
+                if item.is_dir() and ('_ts' in item.name or 'tum_video_scraper' in item.name):
+                    try:
+                        shutil.rmtree(item)
+                        print(f"Removed temp folder: {item}")
+                    except Exception as e:
+                        print(f"Failed to remove temp folder {item}: {e}")
+        
+        # 3. Remove progress files
+        print("Removing progress files...")
+        progress_files = [
+            Path(tempfile.gettempdir()) / "tum_download_progress.json",
+            tmp_dir / "tum_download_progress.json"
+        ]
+        
+        for progress_file in progress_files:
+            try:
+                if progress_file.exists():
+                    progress_file.unlink()
+                    print(f"Removed progress file: {progress_file}")
+            except Exception as e:
+                print(f"Failed to remove progress file {progress_file}: {e}")
+        
+        # 4. Use downloader's cleanup function
+        print("Running downloader cleanup...")
+        downloader.cleanup_all_temp_files()
+        
+        # 5. Remove any partial downloads (files without corresponding .mp4)
+        print("Removing partial downloads...")
+        for output_folder in output_dir.iterdir():
+            if output_folder.is_dir():
+                for file in output_folder.iterdir():
+                    if file.is_file() and not file.name.endswith('.mp4') and not file.name.endswith('.lock'):
+                        try:
+                            file.unlink()
+                            print(f"Removed partial file: {file}")
+                        except Exception as e:
+                            print(f"Failed to remove partial file {file}: {e}")
+                            
+    except Exception as e:
+        print(f"Error during aggressive cleanup: {e}")
+
+def final_lock_cleanup():
+    """Final pass to remove any lock files that might have been recreated"""
+    try:
+        config = load_config_file()
+        output_dir = parse_destination_folder(config)
+        
+        print("Final lock file scan...")
+        lock_files_found = list(output_dir.rglob("*.lock"))
+        
+        if lock_files_found:
+            print(f"Found {len(lock_files_found)} lock files to remove")
+            for lock_file in lock_files_found:
+                try:
+                    lock_file.unlink()
+                    print(f"Removed lock file: {lock_file}")
+                except Exception as e:
+                    print(f"Failed to remove lock file {lock_file}: {e}")
+        else:
+            print("No lock files found in final cleanup")
+            
+    except Exception as e:
+        print(f"Error during final lock cleanup: {e}")
 
 @app.route('/api/browse-folder', methods=['POST'])
 def browse_folder():
@@ -432,8 +718,8 @@ def browse_folder():
 
 @app.route('/api/manual-course', methods=['POST'])
 def add_manual_course():
-    """Add a manual course"""
-    global courses, all_lectures, driver, config
+    """Add a manual course (session only, doesn't modify config)"""
+    global courses, all_lectures, driver, session_manual_courses
     
     data = request.json
     course_name = data.get('courseName', '').strip()
@@ -450,24 +736,15 @@ def add_manual_course():
         return jsonify({"error": "URL must be a valid TUM Live URL"}), 400
     
     try:
-        # Load current config
-        config = load_config_file()
+        # Check if course already exists in session or config
+        config_manual_courses = parse_manual_courses(config)
+        all_existing_courses = [name for name, url in courses] + [name for name, url in session_manual_courses]
         
-        # Initialize Manual-Courses if it doesn't exist
-        if 'Manual-Courses' not in config:
-            config['Manual-Courses'] = {}
-        
-        # Check if course already exists
-        if course_name in config['Manual-Courses']:
+        if course_name in all_existing_courses:
             return jsonify({"error": "Course with this name already exists"}), 400
         
-        # Add the course to config
-        config['Manual-Courses'][course_name] = course_url
-        
-        # Save config
-        config_path = Path("config.yml")
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+        # Add to session manual courses (not saved to config)
+        session_manual_courses.append((course_name, course_url))
         
         # Add to current courses list
         courses.append((course_name, course_url))
@@ -482,7 +759,7 @@ def add_manual_course():
         
         return jsonify({
             "success": True, 
-            "message": f"Course '{course_name}' added successfully",
+            "message": f"Course '{course_name}' added for this session",
             "course": {"name": course_name, "url": course_url}
         })
         
@@ -491,23 +768,18 @@ def add_manual_course():
 
 @app.route('/api/manual-course/<course_name>', methods=['DELETE'])
 def remove_manual_course(course_name):
-    """Remove a manual course"""
-    global courses, all_lectures, config
+    """Remove a manual course (session only, doesn't modify config)"""
+    global courses, all_lectures, session_manual_courses
     
     try:
-        # Load current config
-        config = load_config_file()
+        # Check if it's a session manual course (can be removed)
+        session_course_names = [name for name, url in session_manual_courses]
         
-        if 'Manual-Courses' not in config or course_name not in config['Manual-Courses']:
-            return jsonify({"error": "Manual course not found"}), 404
+        if course_name not in session_course_names:
+            return jsonify({"error": "Can only remove courses added in this session"}), 400
         
-        # Remove from config
-        del config['Manual-Courses'][course_name]
-        
-        # Save config
-        config_path = Path("config.yml")
-        with open(config_path, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+        # Remove from session manual courses
+        session_manual_courses = [(name, url) for name, url in session_manual_courses if name != course_name]
         
         # Remove from current courses list
         courses = [(name, url) for name, url in courses if name != course_name]
@@ -518,7 +790,7 @@ def remove_manual_course(course_name):
         
         return jsonify({
             "success": True, 
-            "message": f"Course '{course_name}' removed successfully"
+            "message": f"Course '{course_name}' removed from session"
         })
         
     except Exception as e:
@@ -526,7 +798,7 @@ def remove_manual_course(course_name):
 
 def logout():
     """Logout and cleanup"""
-    global driver, courses, all_lectures
+    global driver, courses, all_lectures, session_manual_courses
     
     if driver:
         driver.quit()
@@ -534,6 +806,7 @@ def logout():
     
     courses = []
     all_lectures = {}
+    session_manual_courses = []  # Clear session manual courses on logout
     
     return jsonify({"success": True})
 

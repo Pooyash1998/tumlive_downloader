@@ -1282,3 +1282,57 @@ body {
     background: #f5f5f7;
     color: #1d1d1f;
 }
+/* About Section */
+.about-section {
+    position: fixed;
+    bottom: 15px;
+    right: 15px;
+    z-index: 100;
+}
+
+.about-link {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    background: rgba(134, 134, 139, 0.1);
+    border: 1px solid rgba(134, 134, 139, 0.2);
+    border-radius: 10px;
+    color: #86868b;
+    text-decoration: none;
+    font-size: 0.65rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.about-link:hover {
+    background: rgba(134, 134, 139, 0.15);
+    border-color: rgba(134, 134, 139, 0.3);
+    color: #1d1d1f;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.about-text {
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+    letter-spacing: 0.2px;
+}
+
+.github-icon {
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+    flex-shrink: 0;
+}
+
+.about-link:hover .github-icon {
+    opacity: 1;
+}
+
+/* Hide about section on small screens to avoid clutter */
+@media (max-width: 768px) {
+    .about-section {
+        display: none;
+    }
+}
