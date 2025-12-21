@@ -1,16 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from tum_live import get_courses, get_lecture_urls, get_playlist_url
+from multiprocessing import Semaphore
 import threading
 import queue
 import sys
 import os
 import re
 import time
-
-# Import our modules (now in same directory)
-from tum_live import get_courses, get_lecture_urls, get_playlist_url
 import downloader
-from multiprocessing import Semaphore
 from pathlib import Path
 import yaml
 import tempfile
@@ -18,7 +16,6 @@ import tempfile
 app = Flask(__name__)
 CORS(app)
 
-# Configuration functions
 def load_config_file():
     """Load configuration from config file"""
     config_file_paths = [
@@ -65,12 +62,12 @@ def parse_maximum_parallel_downloads(cfg) -> int:
     """Parse maximum parallel downloads from config"""
     return cfg.get('Maximum-Parallel-Downloads', 3)
 
-# Global variables
 driver = None
 courses = []
-all_lectures = {}  # Cache all lectures by course name
+all_lectures = {}
 config = {}
 download_status = {"status": "idle", "message": "", "progress": 0}
+lecture_progress = {}  # Track individual lecture progress
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -110,7 +107,6 @@ def login():
         return jsonify({"error": "Username and password required"}), 400
     
     try:
-        # Use existing get_courses function
         driver, courses = get_courses(username, password)
         
         # Fetch ALL lectures for ALL courses at once
@@ -207,6 +203,9 @@ def start_download():
         try:
             download_status = {"status": "downloading", "message": "Preparing downloads...", "progress": 0}
             
+            # Create one semaphore for all downloads
+            download_semaphore = Semaphore(max_parallel_downloads)
+            
             all_processes = []
             total_stream_types = len(lectures_by_stream_type)
             current_stream = 0
@@ -225,21 +224,47 @@ def start_download():
                 playlists = get_playlist_url(driver, lectures_dict)
                 
                 if course_name in playlists:
-                    # Create output folder for this stream type
-                    subject_folder = Path(output_dir) / f"{course_name}_{stream_type}"
-                    subject_folder.mkdir(parents=True, exist_ok=True)
+                    # Create the course output folder first
+                    course_output_path = Path(output_dir) / course_name
+                    course_output_path.mkdir(parents=True, exist_ok=True)
                     
-                    # Start downloads for this stream type
+                    # Modify the playlist to include stream type in filename
+                    modified_playlist = []
+                    for title, m3u8_url in playlists[course_name]:
+                        # Add stream type suffix to filename
+                        filename_with_suffix = f"{title}_{stream_type.lower()}"
+                        modified_playlist.append((filename_with_suffix, m3u8_url))
+                    
+                    # Just pass the arguments to downloader - reuse the same semaphore
                     processes = downloader.download_list_of_videos(
-                        playlists[course_name],  # List of (title, m3u8_url) tuples
-                        subject_folder,          # output_folder_path
-                        parse_tmp_folder(config), # tmp_directory
-                        Semaphore(max_parallel_downloads)  # semaphore
+                        modified_playlist,        # videos: list[tuple[str, str]]
+                        course_output_path,       # output_folder_path: Path (now exists)
+                        parse_tmp_folder(config), # tmp_directory: Path
+                        download_semaphore        # semaphore: Semaphore (reuse same one)
                     )
                     all_processes.extend(processes)
             
             # Monitor download progress (remaining 80% progress)
             download_status = {"status": "downloading", "message": "Downloading videos...", "progress": 20}
+            
+            # Initialize lecture progress tracking
+            lecture_progress.clear()
+            for process in all_processes:
+                # Extract lecture name from process (this is a bit hacky but works)
+                lecture_name = "Unknown"
+                try:
+                    # Try to get the filename from the process args
+                    if hasattr(process, '_args') and len(process._args) > 0:
+                        lecture_name = process._args[0]  # First arg is filename
+                except:
+                    pass
+                
+                lecture_progress[process.pid] = {
+                    "name": lecture_name,
+                    "progress": 0,
+                    "status": "starting",
+                    "message": "Initializing..."
+                }
             
             completed_lectures = 0
             
@@ -248,15 +273,34 @@ def start_download():
                 # Check which processes have finished
                 finished_processes = []
                 for i, process in enumerate(all_processes):
+                    pid = process.pid
+                    
                     if not process.is_alive():
                         finished_processes.append(i)
                         completed_lectures += 1
+                        
+                        # Update lecture progress to completed
+                        if pid in lecture_progress:
+                            lecture_progress[pid]["progress"] = 100
+                            lecture_progress[pid]["status"] = "completed"
+                            lecture_progress[pid]["message"] = "Download completed"
+                    else:
+                        # Estimate progress for running processes
+                        if pid in lecture_progress:
+                            # Simple time-based progress estimation
+                            # This is not perfect but gives users visual feedback
+                            current_progress = lecture_progress[pid]["progress"]
+                            if current_progress < 95:  # Don't go to 100% until actually done
+                                # Increment progress slowly
+                                lecture_progress[pid]["progress"] = min(95, current_progress + 2)
+                                lecture_progress[pid]["status"] = "downloading"
+                                lecture_progress[pid]["message"] = f"Downloading segments... {lecture_progress[pid]['progress']}%"
                 
                 # Remove finished processes
                 for i in reversed(finished_processes):
                     all_processes.pop(i)
                 
-                # Update progress
+                # Update overall progress
                 if total_lectures > 0:
                     progress = 20 + int((completed_lectures / total_lectures) * 80)
                     download_status = {
@@ -266,8 +310,10 @@ def start_download():
                     }
                 
                 # Wait a bit before checking again
-                time.sleep(1)
+                time.sleep(2)  # Check every 2 seconds
             
+            # Clear lecture progress when done
+            lecture_progress.clear()
             download_status = {"status": "completed", "message": f"All {total_lectures} lectures downloaded successfully!", "progress": 100}
             
         except Exception as e:
@@ -284,6 +330,14 @@ def start_download():
 def get_download_status():
     """Get current download status"""
     return jsonify(download_status)
+
+@app.route('/api/download/progress', methods=['GET'])
+def get_download_progress():
+    """Get detailed progress for individual lectures"""
+    return jsonify({
+        "overall": download_status,
+        "lectures": lecture_progress
+    })
 
 @app.route('/api/browse-folder', methods=['POST'])
 def browse_folder():

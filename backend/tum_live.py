@@ -133,8 +133,7 @@ def get_lecture_urls(driver: WebDriver, courses: List[tuple[str, str]]) -> Dict[
                         "date": dt.date(),
                         "time": dt.time(),
                         "weekday": weekday,
-                        "week": week_number,
-                        "strem_type": "COMB"
+                        "week": week_number
                     })
                 except Exception as e:
                     print(f"Error parsing VOD card: {e}")

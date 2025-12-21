@@ -691,20 +691,26 @@ function addDownloadLog(message, type = '') {
 async function pollDownloadStatusDialog() {
     const interval = setInterval(async () => {
         try {
-            const response = await fetch(`${API_BASE}/download/status`);
-            const status = await response.json();
+            const response = await fetch(`${API_BASE}/download/progress`);
+            const data = await response.json();
             
-            // Update progress bar
-            document.getElementById('dialogProgressFill').style.width = `${status.progress}%`;
-            document.getElementById('dialogProgressText').textContent = `${status.progress}%`;
-            document.getElementById('dialogProgressMessage').textContent = status.message;
+            const overall = data.overall;
+            const lectures = data.lectures;
+            
+            // Update overall progress bar
+            document.getElementById('dialogProgressFill').style.width = `${overall.progress}%`;
+            document.getElementById('dialogProgressText').textContent = `${overall.progress}%`;
+            document.getElementById('dialogProgressMessage').textContent = overall.message;
+            
+            // Update individual lecture progress bars
+            updateLectureProgress(lectures);
             
             // Add log entry for significant progress updates
-            if (status.message.includes('Downloaded') || status.message.includes('Getting playlist')) {
-                addDownloadLog(status.message);
+            if (overall.message.includes('Downloaded') || overall.message.includes('Getting playlist')) {
+                addDownloadLog(overall.message, 'info');
             }
             
-            if (status.status === 'completed') {
+            if (overall.status === 'completed') {
                 clearInterval(interval);
                 addDownloadLog('All downloads completed successfully!', 'success');
                 document.getElementById('dialogProgressMessage').textContent = 'Downloads completed!';
@@ -714,16 +720,50 @@ async function pollDownloadStatusDialog() {
                     closeDownloadDialog();
                 }, 3000);
                 
-            } else if (status.status === 'error') {
+            } else if (overall.status === 'error') {
                 clearInterval(interval);
-                addDownloadLog(`Download failed: ${status.message}`, 'error');
+                addDownloadLog(`Download failed: ${overall.message}`, 'error');
                 document.getElementById('dialogProgressMessage').textContent = 'Download failed';
             }
         } catch (error) {
             clearInterval(interval);
             addDownloadLog('Error checking download status', 'error');
         }
-    }, 1000);
+    }, 2000);  // Check every 2 seconds
+}
+
+// Update individual lecture progress
+function updateLectureProgress(lectures) {
+    const logsContainer = document.getElementById('downloadLogs');
+    
+    // Clear and rebuild progress bars
+    logsContainer.innerHTML = '';
+    
+    Object.entries(lectures).forEach(([pid, lecture]) => {
+        const progressItem = document.createElement('div');
+        progressItem.className = 'lecture-progress-item';
+        progressItem.innerHTML = `
+            <div class="lecture-progress-header">
+                <div class="lecture-name" title="${lecture.name}">${lecture.name}</div>
+                <div class="lecture-percentage">${lecture.progress}%</div>
+            </div>
+            <div class="lecture-progress-bar">
+                <div class="lecture-progress-fill" style="width: ${lecture.progress}%"></div>
+            </div>
+            <div class="lecture-status">${lecture.message}</div>
+        `;
+        logsContainer.appendChild(progressItem);
+    });
+}
+
+// Add log entry to download console
+function addDownloadLog(message, type = '') {
+    const consoleContainer = document.getElementById('downloadConsole');
+    const logEntry = document.createElement('div');
+    logEntry.className = `download-log-entry ${type}`;
+    logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    consoleContainer.appendChild(logEntry);
+    consoleContainer.scrollTop = consoleContainer.scrollHeight;
 }
 
 // Poll download status
