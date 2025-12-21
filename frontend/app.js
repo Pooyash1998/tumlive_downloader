@@ -784,6 +784,21 @@ async function pollDownloadStatusDialog() {
             const overall = data.overall;
             const lectures = data.lectures;
             
+            // If status is idle, it means download was cancelled or reset - stop polling
+            if (overall.status === 'idle') {
+                clearInterval(interval);
+                console.log('Download status is idle, stopping polling');
+                
+                // Reset UI state
+                isDownloading = false;
+                updateDownloadButtonState();
+                
+                // Close dialogs
+                document.getElementById('downloadDialog').style.display = 'none';
+                document.getElementById('minimizedDownloadStatus').style.display = 'none';
+                return;
+            }
+            
             // Update overall progress bar
             document.getElementById('dialogProgressFill').style.width = `${overall.progress}%`;
             document.getElementById('dialogProgressText').textContent = `${overall.progress}%`;
@@ -796,8 +811,20 @@ async function pollDownloadStatusDialog() {
                 document.querySelector('.minimized-status-text').textContent = overall.message;
             }
             
-            // Update individual lecture progress bars
-            updateLectureProgress(lectures);
+            // Only show individual lecture progress after URL fetching is complete (progress > 20%)
+            if (overall.progress > 20 && Object.keys(lectures).length > 0) {
+                updateLectureProgress(lectures);
+            } else if (overall.progress <= 20) {
+                // During URL fetching phase, show a message instead of empty progress
+                const logsContainer = document.getElementById('downloadLogs');
+                logsContainer.innerHTML = `
+                    <div style="text-align: center; padding: 20px; color: #86868b;">
+                        <div style="font-size: 1.1rem; margin-bottom: 8px;">🔗 Fetching Playlist URLs</div>
+                        <div style="font-size: 0.9rem;">Please wait while we gather all video URLs...</div>
+                        <div style="font-size: 0.8rem; margin-top: 8px;">This may take a moment for courses with many lectures.</div>
+                    </div>
+                `;
+            }
             
             if (overall.status === 'completed') {
                 clearInterval(interval);
@@ -836,6 +863,10 @@ async function pollDownloadStatusDialog() {
         } catch (error) {
             clearInterval(interval);
             console.error('Error checking download status:', error);
+            
+            // Reset UI state on error
+            isDownloading = false;
+            updateDownloadButtonState();
         }
     }, 1500);  // Check every 1.5 seconds for more responsive updates
 }
@@ -847,17 +878,58 @@ function updateLectureProgress(lectures) {
     // Clear and rebuild progress bars
     logsContainer.innerHTML = '';
     
-    Object.entries(lectures).forEach(([filename, lecture]) => {
+    // Sort lectures by status priority: downloading > starting > queued > completed
+    const statusPriority = {
+        'downloading': 1,
+        'starting': 2, 
+        'queued': 3,
+        'completed': 4
+    };
+    
+    const sortedLectures = Object.entries(lectures).sort(([nameA, lectureA], [nameB, lectureB]) => {
+        const priorityA = statusPriority[lectureA.status] || 5;
+        const priorityB = statusPriority[lectureB.status] || 5;
+        
+        if (priorityA !== priorityB) {
+            return priorityA - priorityB;
+        }
+        
+        // If same status, sort by name
+        return nameA.localeCompare(nameB);
+    });
+    
+    sortedLectures.forEach(([filename, lecture]) => {
         const isCompleted = lecture.status === 'completed';
+        const isQueued = lecture.status === 'queued';
+        const isStarting = lecture.status === 'starting';
+        const isDownloading = lecture.status === 'downloading';
+        
+        let statusClass = '';
+        let statusText = `${lecture.progress}%`;
+        
+        if (isCompleted) {
+            statusClass = 'completed';
+            statusText = 'Done';
+        } else if (isQueued) {
+            statusClass = 'queued';
+            statusText = 'Queued';
+        } else if (isStarting) {
+            statusClass = 'starting';
+            statusText = 'Starting';
+        } else if (isDownloading) {
+            statusClass = 'downloading';
+            statusText = `${lecture.progress}%`;
+        }
+        
         const progressItem = document.createElement('div');
         progressItem.className = 'lecture-progress-item';
         progressItem.innerHTML = `
             <div class="lecture-progress-header">
                 <div class="lecture-name" title="${lecture.name}">${lecture.name}</div>
-                <div class="lecture-status-badge ${isCompleted ? 'completed' : ''}">${lecture.progress}%</div>
+                <div class="lecture-status-badge ${statusClass}">${statusText}</div>
             </div>
             <div class="lecture-progress-bar">
-                <div class="lecture-progress-fill ${isCompleted ? 'completed' : ''}" style="width: ${lecture.progress}%"></div>
+                <div class="lecture-progress-fill ${statusClass}" style="width: ${lecture.progress}%"></div>
             </div>
             <div class="lecture-status">${lecture.message}</div>
         `;

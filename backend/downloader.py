@@ -35,13 +35,23 @@ def update_progress(filename: str, current: int, total: int, rate: float = 0):
             except:
                 progress_data = {}
         
+        # Determine status based on progress
+        if current == 0 and total == 1:
+            status = 'starting'
+        elif current == 0 and total > 1:
+            status = 'downloading'
+        elif current < total:
+            status = 'downloading'
+        else:
+            status = 'completed'
+        
         # Update progress for this file
         progress_data[filename] = {
             'current': current,
             'total': total,
             'percentage': int((current / total) * 100) if total > 0 else 0,
             'rate': round(rate, 1),  # Round rate for cleaner display
-            'status': 'downloading' if current < total else 'completed',
+            'status': status,
             'last_update': time.time()  # Track when this was last updated
         }
         
@@ -78,7 +88,11 @@ def download_list_of_videos(videos: list[tuple[str, str]],
     
     child_process_list = []
     for filename, url in videos:
+        original_filename = filename
         filename = re.sub('[\\\\/:*?"<>|]|[\x00-\x20]', '_', filename) + ".mp4"  # Filter illegal filename chars
+        
+        print(f"Downloader: {original_filename} -> {filename}")
+        
         output_file_path = Path(output_folder_path, filename)
         """We use locks to prevent processing the same video twice (e.g. if we run in multiple independent instances)"""
         """Locks can also be created by the user to keep us from downloading a specific video"""
@@ -88,6 +102,8 @@ def download_list_of_videos(videos: list[tuple[str, str]],
             
             # Initialize progress for this file
             update_progress(filename, 0, 1, 0)
+            
+            print(f"Starting download process for: {filename}")
             
             child_process = Process(target=download,  # Download video in separate process
                                     args=(filename, url,
@@ -102,8 +118,15 @@ def download(filename: str, playlist_url: str,
              semaphore: Semaphore):
     
     print(f"Download of {filename} started")
+    
+    # Update status to "starting" before acquiring semaphore
+    update_progress(filename, 0, 1, 0)
+    
     semaphore.acquire()  # Acquire lock
     download_start_time = time.time()  # Track download time
+    
+    # Update status to "downloading" after acquiring semaphore
+    update_progress(filename, 0, 100, 0)  # Initialize with proper total
     
     # Create error log path in the same directory as output
     error_log_path = output_file_path.parent / "download_errors.log"

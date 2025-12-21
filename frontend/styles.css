@@ -1336,3 +1336,32 @@ body {
         display: none;
     }
 }
+/* Additional status badges for download progress */
+.lecture-status-badge.queued {
+    color: #86868b;
+    background: #f5f5f7;
+}
+
+.lecture-status-badge.starting {
+    color: #007aff;
+    background: #e6f3ff;
+}
+
+.lecture-status-badge.downloading {
+    color: #007aff;
+    background: #e6f3ff;
+    font-weight: 600;
+}
+
+.lecture-progress-fill.queued {
+    background: #f5f5f7;
+}
+
+.lecture-progress-fill.starting {
+    background: #007aff;
+    opacity: 0.3;
+}
+
+.lecture-progress-fill.downloading {
+    background: #007aff;
+}
