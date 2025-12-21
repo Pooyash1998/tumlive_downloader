@@ -11,6 +11,7 @@ let isDownloading = false;  // Track download state
 document.addEventListener('DOMContentLoaded', async () => {
     await loadConfig();
     setupEventListeners();
+    updateDownloadButtonState(); // Initialize button state
 });
 
 // Load configuration
@@ -235,6 +236,7 @@ function showCourseSelection() {
     // Reset selections when going back to course selection
     selectedLectures.clear();
     updateSelectAllState();
+    updateDownloadButtonState();
 }
 
 // Show lectures for selected course
@@ -247,6 +249,7 @@ function showLecturesSection(courseName) {
     // Reset selections when switching to a new course
     selectedLectures.clear();
     updateSelectAllState();
+    updateDownloadButtonState();
 }
 
 // Load courses
@@ -512,6 +515,7 @@ function createLectureItem(lecture) {
             selectedLectures.delete(lecture);
         }
         updateSelectAllState();
+        updateDownloadButtonState();
     });
     
     item.addEventListener('click', (e) => {
@@ -593,6 +597,7 @@ function handleSelectAll(e) {
         } else {
             selectedLectures.delete(lecture);
         }
+        updateDownloadButtonState();
     });
 }
 
@@ -758,9 +763,12 @@ function updateDownloadButtonState() {
     if (isDownloading) {
         downloadBtn.disabled = true;
         downloadBtn.textContent = 'Downloading...';
+    } else if (selectedLectures.size === 0) {
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Download Selected';
     } else {
         downloadBtn.disabled = false;
-        downloadBtn.textContent = 'Download Selected';
+        downloadBtn.textContent = `Download Selected (${selectedLectures.size})`;
     }
 }
 

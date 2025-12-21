@@ -10,6 +10,14 @@ I initially built a CLI tool, but it quickly became impractical for daily use. T
 
 The goal is simple: reliable offline access to TUM Live lectures.
 
+## Demo
+
+See TUM Live Downloader in action:
+
+![Demo Video](demo/demo_small.mp4)
+
+*The demo shows the complete workflow: login, course selection, lecture filtering, and download progress tracking.*
+
 ## Quick Start
 
 ### Prerequisites
@@ -21,33 +29,6 @@ The goal is simple: reliable offline access to TUM Live lectures.
 - **Conda** (recommended)
 
 ### Installation
-
-You can run **TUM Live Downloader** either manually using Conda and npm, or using Docker.
-
-#### 🐳 Docker Installation (Recommended)
-
-1️⃣ **Clone the repository**
-```bash
-git clone https://github.com/Pooyash1998/tumlive_downloader.git
-cd tumlive_downloader
-```
-
-2️⃣ **Create config file (optional)**
-```bash
-cp example_config.yml config.yml
-# Edit config.yml with your credentials (stays on your machine - not copied to Docker)
-```
-
-3️⃣ **Build and run with Docker Compose**
-```bash
-docker-compose up -d --build
-```
-
-4️⃣ **Access the web interface**
-- **Web Interface**: http://localhost:8080
-- **API Backend**: http://localhost:5001 (optional)
-
-#### 🔧 Manual Installation (Recommended for Desktop)
 
 1️⃣ **Clone the repository**
 ```bash
