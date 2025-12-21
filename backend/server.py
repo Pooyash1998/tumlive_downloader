@@ -12,6 +12,7 @@ import downloader
 from pathlib import Path
 import yaml
 import tempfile
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -217,7 +218,7 @@ def start_download():
                 download_status = {
                     "status": "downloading",
                     "message": f"Getting playlist URLs for {stream_type}...",
-                    "progress": int((current_stream / total_stream_types) * 20)  # First 20% for playlist fetching
+                    "progress": int((current_stream / total_stream_types) * 10)  # First 10% for playlist fetching
                 }
                 
                 # Get playlist URLs using the existing function
@@ -244,73 +245,83 @@ def start_download():
                     )
                     all_processes.extend(processes)
             
-            # Monitor download progress (remaining 80% progress)
-            download_status = {"status": "downloading", "message": "Downloading videos...", "progress": 20}
+            # Monitor download progress (remaining 90% progress)
+            download_status = {"status": "downloading", "message": "Downloading videos...", "progress": 10}
             
-            # Initialize lecture progress tracking
+            # Clear old progress and get real progress from downloader
             lecture_progress.clear()
-            for process in all_processes:
-                # Extract lecture name from process (this is a bit hacky but works)
-                lecture_name = "Unknown"
-                try:
-                    # Try to get the filename from the process args
-                    if hasattr(process, '_args') and len(process._args) > 0:
-                        lecture_name = process._args[0]  # First arg is filename
-                except:
-                    pass
-                
-                lecture_progress[process.pid] = {
-                    "name": lecture_name,
-                    "progress": 0,
-                    "status": "starting",
-                    "message": "Initializing..."
-                }
             
             completed_lectures = 0
+            error_log_path = Path(output_dir) / "download_errors.log"
             
-            # Monitor processes
+            # Monitor processes and get real progress
             while all_processes:
+                # Get real progress data from downloader
+                real_progress = downloader.get_progress_data()
+                
+                # Calculate overall progress based on individual lecture progress
+                total_progress = 0
+                active_lectures = 0
+                
+                # Update lecture progress with real data
+                lecture_progress.clear()
+                for filename, progress_data in real_progress.items():
+                    # Use filename as key (remove .mp4 extension for display)
+                    display_name = filename.replace('.mp4', '')
+                    lecture_progress[display_name] = {
+                        "name": display_name,
+                        "progress": progress_data['percentage'],
+                        "current": progress_data['current'],
+                        "total": progress_data['total'],
+                        "rate": progress_data['rate'],
+                        "status": progress_data['status'],
+                        "message": f"{progress_data['current']}/{progress_data['total']} segments ({progress_data['rate']:.1f} seg/s)" if progress_data['rate'] > 0 else f"{progress_data['current']}/{progress_data['total']} segments"
+                    }
+                    
+                    # Add to overall progress calculation
+                    total_progress += progress_data['percentage']
+                    active_lectures += 1
+                
                 # Check which processes have finished
                 finished_processes = []
                 for i, process in enumerate(all_processes):
-                    pid = process.pid
-                    
                     if not process.is_alive():
                         finished_processes.append(i)
                         completed_lectures += 1
                         
-                        # Update lecture progress to completed
-                        if pid in lecture_progress:
-                            lecture_progress[pid]["progress"] = 100
-                            lecture_progress[pid]["status"] = "completed"
-                            lecture_progress[pid]["message"] = "Download completed"
-                    else:
-                        # Estimate progress for running processes
-                        if pid in lecture_progress:
-                            # Simple time-based progress estimation
-                            # This is not perfect but gives users visual feedback
-                            current_progress = lecture_progress[pid]["progress"]
-                            if current_progress < 95:  # Don't go to 100% until actually done
-                                # Increment progress slowly
-                                lecture_progress[pid]["progress"] = min(95, current_progress + 2)
-                                lecture_progress[pid]["status"] = "downloading"
-                                lecture_progress[pid]["message"] = f"Downloading segments... {lecture_progress[pid]['progress']}%"
+                        # Check for process errors and log them
+                        if process.exitcode != 0:
+                            error_msg = f"Process failed with exit code {process.exitcode} for lecture {i}"
+                            try:
+                                with open(error_log_path, 'a', encoding='utf-8') as f:
+                                    f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {error_msg}\n")
+                            except Exception as log_error:
+                                print(f"Failed to write error log: {log_error}")
                 
                 # Remove finished processes
                 for i in reversed(finished_processes):
                     all_processes.pop(i)
                 
-                # Update overall progress
+                # Calculate more responsive overall progress
                 if total_lectures > 0:
-                    progress = 20 + int((completed_lectures / total_lectures) * 80)
+                    if active_lectures > 0:
+                        # Use average progress of active lectures for more responsive updates
+                        avg_lecture_progress = total_progress / active_lectures
+                        # Combine completed lectures with average progress of active ones
+                        overall_progress = ((completed_lectures * 100) + avg_lecture_progress) / total_lectures
+                        progress = 10 + int((overall_progress / 100) * 90)
+                    else:
+                        # Fallback to simple completion-based progress
+                        progress = 10 + int((completed_lectures / total_lectures) * 90)
+                    
                     download_status = {
                         "status": "downloading", 
                         "message": f"Downloaded {completed_lectures}/{total_lectures} lectures...", 
-                        "progress": progress
+                        "progress": min(99, progress)  # Cap at 99% until fully complete
                     }
                 
-                # Wait a bit before checking again
-                time.sleep(2)  # Check every 2 seconds
+                # Wait a bit before checking again - reduced for more responsive updates
+                time.sleep(1)  # Check every 1 second for more responsive updates
             
             # Clear lecture progress when done
             lecture_progress.clear()

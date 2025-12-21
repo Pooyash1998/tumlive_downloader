@@ -5,6 +5,7 @@ let lectures = [];
 let selectedLectures = new Set();
 let currentCourse = null;
 let sortAscending = true;
+let isDownloading = false;  // Track download state
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', async () => {
@@ -79,7 +80,9 @@ function setupEventListeners() {
     document.getElementById('browseBtn').addEventListener('click', handleBrowseFolder);
     
     // Download dialog
+    document.getElementById('minimizeDownloadDialog').addEventListener('click', minimizeDownloadDialog);
     document.getElementById('closeDownloadDialog').addEventListener('click', closeDownloadDialog);
+    document.getElementById('restoreDownloadDialog').addEventListener('click', restoreDownloadDialog);
     
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', handleLogout);
@@ -588,6 +591,11 @@ function updateSelectAllState() {
 
 // Handle download
 async function handleDownload() {
+    if (isDownloading) {
+        showStatus('downloadStatus', 'Download already in progress', 'error');
+        return;
+    }
+    
     if (selectedLectures.size === 0) {
         showStatus('downloadStatus', 'Please select at least one lecture', 'error');
         return;
@@ -669,12 +677,45 @@ function showDownloadDialog(courseName, streamTypes, lectureCount) {
     document.getElementById('downloadLogs').innerHTML = '';
     
     document.getElementById('downloadDialog').style.display = 'flex';
-    addDownloadLog('Download started...', 'success');
+    
+    // Disable download button and show downloading state
+    isDownloading = true;
+    updateDownloadButtonState();
+}
+
+// Minimize download dialog
+function minimizeDownloadDialog() {
+    document.getElementById('downloadDialog').style.display = 'none';
+    document.getElementById('minimizedDownloadStatus').style.display = 'block';
+}
+
+// Restore download dialog
+function restoreDownloadDialog() {
+    document.getElementById('minimizedDownloadStatus').style.display = 'none';
+    document.getElementById('downloadDialog').style.display = 'flex';
 }
 
 // Close download dialog
 function closeDownloadDialog() {
     document.getElementById('downloadDialog').style.display = 'none';
+    document.getElementById('minimizedDownloadStatus').style.display = 'none';
+    
+    // Only re-enable download button if not actively downloading
+    if (!isDownloading) {
+        updateDownloadButtonState();
+    }
+}
+
+// Update download button state
+function updateDownloadButtonState() {
+    const downloadBtn = document.getElementById('downloadBtn');
+    if (isDownloading) {
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Downloading...';
+    } else {
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = 'Download Selected';
+    }
 }
 
 // Add log entry to download dialog
@@ -702,18 +743,23 @@ async function pollDownloadStatusDialog() {
             document.getElementById('dialogProgressText').textContent = `${overall.progress}%`;
             document.getElementById('dialogProgressMessage').textContent = overall.message;
             
+            // Update minimized status if visible
+            const minimizedStatus = document.getElementById('minimizedDownloadStatus');
+            if (minimizedStatus.style.display !== 'none') {
+                document.getElementById('minimizedProgressFill').style.width = `${overall.progress}%`;
+                document.querySelector('.minimized-status-text').textContent = overall.message;
+            }
+            
             // Update individual lecture progress bars
             updateLectureProgress(lectures);
             
-            // Add log entry for significant progress updates
-            if (overall.message.includes('Downloaded') || overall.message.includes('Getting playlist')) {
-                addDownloadLog(overall.message, 'info');
-            }
-            
             if (overall.status === 'completed') {
                 clearInterval(interval);
-                addDownloadLog('All downloads completed successfully!', 'success');
                 document.getElementById('dialogProgressMessage').textContent = 'Downloads completed!';
+                
+                // Re-enable download button
+                isDownloading = false;
+                updateDownloadButtonState();
                 
                 // Auto-close dialog after 3 seconds
                 setTimeout(() => {
@@ -722,14 +768,17 @@ async function pollDownloadStatusDialog() {
                 
             } else if (overall.status === 'error') {
                 clearInterval(interval);
-                addDownloadLog(`Download failed: ${overall.message}`, 'error');
                 document.getElementById('dialogProgressMessage').textContent = 'Download failed';
+                
+                // Re-enable download button
+                isDownloading = false;
+                updateDownloadButtonState();
             }
         } catch (error) {
             clearInterval(interval);
-            addDownloadLog('Error checking download status', 'error');
+            console.error('Error checking download status:', error);
         }
-    }, 2000);  // Check every 2 seconds
+    }, 3000);  // Check every 3 seconds
 }
 
 // Update individual lecture progress
@@ -739,16 +788,17 @@ function updateLectureProgress(lectures) {
     // Clear and rebuild progress bars
     logsContainer.innerHTML = '';
     
-    Object.entries(lectures).forEach(([pid, lecture]) => {
+    Object.entries(lectures).forEach(([filename, lecture]) => {
+        const isCompleted = lecture.status === 'completed';
         const progressItem = document.createElement('div');
         progressItem.className = 'lecture-progress-item';
         progressItem.innerHTML = `
             <div class="lecture-progress-header">
                 <div class="lecture-name" title="${lecture.name}">${lecture.name}</div>
-                <div class="lecture-percentage">${lecture.progress}%</div>
+                <div class="lecture-status-badge ${isCompleted ? 'completed' : ''}">${lecture.progress}%</div>
             </div>
             <div class="lecture-progress-bar">
-                <div class="lecture-progress-fill" style="width: ${lecture.progress}%"></div>
+                <div class="lecture-progress-fill ${isCompleted ? 'completed' : ''}" style="width: ${lecture.progress}%"></div>
             </div>
             <div class="lecture-status">${lecture.message}</div>
         `;

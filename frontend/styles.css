@@ -819,20 +819,103 @@ body {
     color: #1d1d1f;
 }
 
-.close-btn {
+.dialog-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.minimize-btn, .close-btn {
     background: none;
     border: none;
     font-size: 1.5rem;
     color: #86868b;
     cursor: pointer;
-    padding: 4px;
+    padding: 4px 8px;
     border-radius: 4px;
     transition: background-color 0.2s ease;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.close-btn:hover {
+.minimize-btn:hover, .close-btn:hover {
     background: #f5f5f7;
     color: #1d1d1f;
+}
+
+/* Minimized Download Status */
+.minimized-download-status {
+    background: #007aff;
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 15px;
+    color: white;
+    animation: slideIn 0.3s ease;
+}
+
+.minimized-status-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.minimized-status-icon {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.minimized-status-info {
+    flex: 1;
+}
+
+.minimized-status-text {
+    font-size: 0.9rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.minimized-progress-bar {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.minimized-progress-fill {
+    height: 100%;
+    background: white;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+.restore-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease;
+    font-size: 0.9rem;
+}
+
+.restore-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .download-dialog-body {
@@ -927,12 +1010,20 @@ body {
     text-overflow: ellipsis;
 }
 
-.lecture-percentage {
-    font-weight: 600;
+.lecture-status-badge {
+    font-weight: 500;
     color: #007aff;
     font-size: 0.85rem;
-    min-width: 40px;
+    min-width: 80px;
     text-align: right;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #f0f8ff;
+}
+
+.lecture-status-badge.completed {
+    color: #34c759;
+    background: #f0fff4;
 }
 
 .lecture-progress-bar {
@@ -952,37 +1043,13 @@ body {
     width: 0%;
 }
 
+.lecture-progress-fill.completed {
+    background: #34c759;
+}
+
 .lecture-status {
     font-size: 0.75rem;
     color: #86868b;
-}
-
-.download-console {
-    background: #1d1d1f;
-    border-radius: 8px;
-    padding: 12px;
-    max-height: 150px;
-    overflow-y: auto;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-    font-size: 0.75rem;
-    line-height: 1.4;
-}
-
-.download-log-entry {
-    margin-bottom: 4px;
-    color: #ffffff;
-}
-
-.download-log-entry.success {
-    color: #34c759;
-}
-
-.download-log-entry.error {
-    color: #ff3b30;
-}
-
-.download-log-entry.info {
-    color: #007aff;
 }
 
 /* Loading Overlay */

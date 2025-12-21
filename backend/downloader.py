@@ -13,15 +13,69 @@ from urllib.parse import urljoin
 import logging
 from threading import Lock
 from datetime import datetime
+import json
+import tempfile
 
 def log(msg: str):
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
 
+# Use a file-based progress tracking system
+PROGRESS_FILE = Path(tempfile.gettempdir()) / "tum_download_progress.json"
+
+def update_progress(filename: str, current: int, total: int, rate: float = 0):
+    """Update progress for a specific file using file-based storage"""
+    try:
+        # Read existing progress
+        progress_data = {}
+        if PROGRESS_FILE.exists():
+            try:
+                with open(PROGRESS_FILE, 'r') as f:
+                    progress_data = json.load(f)
+            except:
+                progress_data = {}
+        
+        # Update progress for this file
+        progress_data[filename] = {
+            'current': current,
+            'total': total,
+            'percentage': int((current / total) * 100) if total > 0 else 0,
+            'rate': round(rate, 1),  # Round rate for cleaner display
+            'status': 'downloading' if current < total else 'completed',
+            'last_update': time.time()  # Track when this was last updated
+        }
+        
+        # Write back to file
+        with open(PROGRESS_FILE, 'w') as f:
+            json.dump(progress_data, f)
+    except Exception as e:
+        print(f"Error updating progress: {e}")
+
+def get_progress_data():
+    """Get current progress data for all downloads"""
+    try:
+        if PROGRESS_FILE.exists():
+            with open(PROGRESS_FILE, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return {}
+
+def clear_progress_data():
+    """Clear all progress data"""
+    try:
+        if PROGRESS_FILE.exists():
+            PROGRESS_FILE.unlink()
+    except:
+        pass
+
 
 def download_list_of_videos(videos: list[tuple[str, str]],
                             output_folder_path: Path, tmp_directory: Path,
                             semaphore: Semaphore) -> [Process]:
+    # Clear any existing progress data
+    clear_progress_data()
+    
     child_process_list = []
     for filename, url in videos:
         filename = re.sub('[\\\\/:*?"<>|]|[\x00-\x20]', '_', filename) + ".mp4"  # Filter illegal filename chars
@@ -31,6 +85,10 @@ def download_list_of_videos(videos: list[tuple[str, str]],
         if not (Path(output_file_path.as_posix() + ".lock").exists()  # Check if lock file exists
                 or output_file_path.exists()):  # Check if file exists (we downloaded and converted it already)
             Path(output_file_path.as_posix() + ".lock").touch()  # Create lock file
+            
+            # Initialize progress for this file
+            update_progress(filename, 0, 1, 0)
+            
             child_process = Process(target=download,  # Download video in separate process
                                     args=(filename, url,
                                           output_file_path, tmp_directory,
@@ -46,6 +104,18 @@ def download(filename: str, playlist_url: str,
     print(f"Download of {filename} started")
     semaphore.acquire()  # Acquire lock
     download_start_time = time.time()  # Track download time
+    
+    # Create error log path in the same directory as output
+    error_log_path = output_file_path.parent / "download_errors.log"
+    
+    def log_error(message):
+        """Log error to file"""
+        try:
+            with open(error_log_path, 'a', encoding='utf-8') as f:
+                f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {filename}: {message}\n")
+        except Exception as e:
+            print(f"Failed to write error log: {e}")
+    
     # --- Phase 1: we parse the playlist and download its .ts segments in parallel ---
     try:
         playlist = m3u8.load(playlist_url)
@@ -54,16 +124,26 @@ def download(filename: str, playlist_url: str,
         ts_folder = Path(tmp_directory, f"{filename}_ts")
         ts_folder.mkdir(parents=True, exist_ok=True)
 
+        # Initialize progress tracking
+        total_segments = len(ts_urls)
+        completed_segments = 0
+        update_progress(filename, 0, total_segments, 0)
+
         lock = Lock()
         # Progress bar for each Lecture
         pbar = tqdm(total=len(ts_urls), desc=f"{filename}", position=0, leave=True, dynamic_ncols=True)
 
         def download_ts(ts_url, index):
-            nonlocal pbar
+            nonlocal pbar, completed_segments
             ts_path = ts_folder / f"{index:05d}.ts"
             if ts_path.exists():
                 with lock:
                     pbar.update(1)
+                    completed_segments += 1
+                    # Calculate rate based on recent progress (more responsive)
+                    elapsed = time.time() - download_start_time
+                    rate = completed_segments / elapsed if elapsed > 0 else 0
+                    update_progress(filename, completed_segments, total_segments, rate)
                 return ts_path # Skip download if file already exists
             
             max_retries = 5
@@ -77,23 +157,36 @@ def download(filename: str, playlist_url: str,
                                 f.write(chunk)
                     with lock:
                         pbar.update(1)
+                        completed_segments += 1
+                        # Calculate rate based on recent progress (more responsive)
+                        elapsed = time.time() - download_start_time
+                        rate = completed_segments / elapsed if elapsed > 0 else 0
+                        update_progress(filename, completed_segments, total_segments, rate)
                     return ts_path # Success -> Exit loop
                 
                 except Exception as e:
-                    print(f"[Retry {attempt + 1}/{max_retries}] Failed to download segment {ts_url}: {e}", file=sys.stderr)
+                    error_msg = f"[Retry {attempt + 1}/{max_retries}] Failed to download segment {ts_url}: {e}"
+                    print(error_msg, file=sys.stderr)
+                    if attempt == max_retries - 1:  # Last attempt failed
+                        log_error(f"Segment {index} failed after {max_retries} attempts: {e}")
                     time.sleep(2 ** attempt)  # Exponential backoff
             print(f"Failed to download segment {index} after {max_retries} failed attempts.", file=sys.stderr)
-            return None 
+            return None
         
         with ThreadPoolExecutor(max_workers=16) as executor:
             segment_paths = list(executor.map(download_ts, ts_urls, range(len(ts_urls))))
         segment_paths = [p for p in segment_paths if p is not None]
         if len(segment_paths) < len(ts_urls):
             missing = len(ts_urls) - len(segment_paths)
-            print(f"{missing} segments failed to download for {filename}.Delete the lock file and rerun the script to retry.", file=sys.stderr)
+            error_msg = f"{missing} segments failed to download. Delete the lock file and rerun the script to retry."
+            print(error_msg, file=sys.stderr)
+            log_error(error_msg)
     
     except Exception as e:
-        print(f"Failed to download segments for {filename}: {e}", file=sys.stderr)
+        error_msg = f"Failed to download segments: {e}"
+        print(error_msg, file=sys.stderr)
+        log_error(error_msg)
+        update_progress(filename, 0, 1, 0)  # Reset progress on error
         semaphore.release()
         return
     
@@ -129,10 +222,13 @@ def download(filename: str, playlist_url: str,
     print(f"Download of {filename} completed after {(time.time() - download_start_time):.0f}s")
     log(f"Completed {filename} in {(time.time() - download_start_time):.1f}s "
     f"({len(segment_paths)} segments)")
+    
+    # Mark as completed in progress tracking
+    update_progress(filename, total_segments, total_segments, 0)
+    
     shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location    
     print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")
     temporary_file_path.unlink()  # Delete temp file
     Path(output_file_path.as_posix() + ".lock").unlink()  # Remove lock file
     shutil.rmtree(ts_folder)  # Remove ts folder
     semaphore.release()  # Release lock
-

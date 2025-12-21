@@ -124,6 +124,20 @@
                 
                 <!-- Download Section -->
                 <section class="download-section">
+                    <!-- Minimized Download Status -->
+                    <div id="minimizedDownloadStatus" class="minimized-download-status" style="display: none;">
+                        <div class="minimized-status-content">
+                            <div class="minimized-status-icon">⬇</div>
+                            <div class="minimized-status-info">
+                                <div class="minimized-status-text">Downloading...</div>
+                                <div class="minimized-progress-bar">
+                                    <div id="minimizedProgressFill" class="minimized-progress-fill"></div>
+                                </div>
+                            </div>
+                            <button id="restoreDownloadDialog" class="restore-btn" title="Show download progress">↗</button>
+                        </div>
+                    </div>
+                    
                     <div class="download-settings">
                         <h3>Download Settings</h3>
                         
@@ -165,7 +179,10 @@
             <div class="download-dialog-content">
                 <div class="download-dialog-header">
                     <h3>Downloading Lectures</h3>
-                    <button id="closeDownloadDialog" class="close-btn">×</button>
+                    <div class="dialog-controls">
+                        <button id="minimizeDownloadDialog" class="minimize-btn" title="Minimize">−</button>
+                        <button id="closeDownloadDialog" class="close-btn" title="Close">×</button>
+                    </div>
                 </div>
                 <div class="download-dialog-body">
                     <div class="download-info">
@@ -181,9 +198,6 @@
                     </div>
                     <div id="downloadLogs" class="download-logs">
                         <!-- Individual lecture progress bars will appear here -->
-                    </div>
-                    <div id="downloadConsole" class="download-console">
-                        <!-- Console-style logs will appear here -->
                     </div>
                 </div>
             </div>
