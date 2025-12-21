@@ -24,7 +24,7 @@ The goal is simple: reliable offline access to TUM Live lectures.
 
 You can run **TUM Live Downloader** either manually using Conda and npm, or using Docker.
 
-#### 🐳 Docker Installation (Recommended for Server/Headless)
+#### 🐳 Docker Installation (Recommended)
 
 1️⃣ **Clone the repository**
 ```bash
@@ -35,23 +35,17 @@ cd tumlive_downloader
 2️⃣ **Create config file (optional)**
 ```bash
 cp example_config.yml config.yml
-# Edit config.yml with your credentials
+# Edit config.yml with your credentials (stays on your machine - not copied to Docker)
 ```
 
 3️⃣ **Build and run with Docker Compose**
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
 
 4️⃣ **Access the web interface**
 - **Web Interface**: http://localhost:8080
 - **API Backend**: http://localhost:5001 (optional)
-
-**Docker Features:**
-- 🌐 **Web Interface**: Access through any browser
-- 🔄 **Auto-restart**: Container restarts automatically
-- 📁 **Volume Mounting**: Downloads saved to `./downloads/`
-- 🏥 **Health Checks**: Automatic container health monitoring
 
 #### 🔧 Manual Installation (Recommended for Desktop)
 

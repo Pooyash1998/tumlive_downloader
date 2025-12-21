@@ -43,3 +43,6 @@ __pycache__/
 # OS generated files
 Thumbs.db
 ehthumbs.db
+
+# Use Docker-specific requirements
+# requirements.txt
