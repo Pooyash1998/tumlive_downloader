@@ -778,7 +778,7 @@ async function pollDownloadStatusDialog() {
             clearInterval(interval);
             console.error('Error checking download status:', error);
         }
-    }, 3000);  // Check every 3 seconds
+    }, 1500);  // Check every 1.5 seconds for more responsive updates
 }
 
 // Update individual lecture progress

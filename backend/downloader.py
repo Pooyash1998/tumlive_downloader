@@ -211,12 +211,17 @@ def download(filename: str, playlist_url: str,
     ], cwd=ts_folder, capture_output=True)
 
     if ffmpeg.returncode != 0:  # Print debug output in case of error
+        error_msg = f"FFmpeg failed with return code {ffmpeg.returncode}"
         print(f"Error during download of \"{filename}\" with ffmpeg:", file=sys.stderr)
         print(f"Playlist file: {playlist_url}", file=sys.stderr)
         print(f"Designated download location: {temporary_file_path}", file=sys.stderr)
         print(f"Designated output location: {output_file_path}", file=sys.stderr)
         print(f"Output of ffmpeg to stdout:\n{ffmpeg.stdout.decode('utf-8')}", file=sys.stderr)
         print(f"Output of ffmpeg to stderr:\n{ffmpeg.stderr.decode('utf-8')}", file=sys.stderr)
+        
+        # Log the error
+        log_error(f"FFmpeg failed: {error_msg}")
+        log_error(f"FFmpeg stderr: {ffmpeg.stderr.decode('utf-8')}")
         return
 
     print(f"Download of {filename} completed after {(time.time() - download_start_time):.0f}s")
