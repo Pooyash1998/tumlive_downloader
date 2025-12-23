@@ -37,8 +37,10 @@ cd tumlive_downloader
 ```
 
 2️⃣ **Create and activate Conda environment**
+You can skip this and install ffmpeg manually
+
 ```bash
-conda create -n tumlive python=3.10 -y
+conda env create -f environment.yml
 conda activate tumlive
 ```
 
