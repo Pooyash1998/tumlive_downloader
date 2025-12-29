@@ -151,7 +151,7 @@ def download(filename: str, playlist_url: str,
         semaphore.release()
         return
     
-    download_start_time = time.time()  # Track download time
+    download_start_time = time.time()  #Track download time
     
     # Update status to "downloading" after acquiring semaphore
     update_progress(filename, 0, 100, 0)  # Initialize with proper total
@@ -332,6 +332,5 @@ def cleanup_all_temp_files():
                     print(f"Removed temp folder: {item}")
                 except Exception as e:
                     print(f"Failed to remove temp folder {item}: {e}")
-                    
     except Exception as e:
         print(f"Error cleaning up temp files: {e}")
