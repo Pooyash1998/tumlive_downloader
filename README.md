@@ -36,16 +36,23 @@ git clone https://github.com/Pooyash1998/tumlive_downloader.git
 cd tumlive_downloader
 ```
 
-2️⃣ **Create and activate Conda environment**
-You can skip this and install ffmpeg manually
+2️⃣ **Setup Python environment**
 
+**Option A: Using Conda (Recommended)**
 ```bash
 conda env create -f environment.yml
 conda activate tumlive
 ```
+This automatically installs all Python dependencies and ffmpeg.
 
-3️⃣ **Install Python dependencies**
+**Option B: Manual Python setup**
+If you prefer not to use Conda:
 ```bash
+# Create virtual environment (optional but recommended)
+python -m venv tumlive
+source tumlive/bin/activate  # On Windows: tumlive\Scripts\activate
+
+# Install Python dependencies
 pip install -r requirements.txt
 ```
 This installs:
@@ -53,7 +60,9 @@ This installs:
 - Flask backend
 - Download and parsing utilities
 
-4️⃣ **Install Node.js dependencies**
+**Note:** You'll also need to install ffmpeg manually if not using Conda.
+
+3️⃣ **Install Node.js dependencies**
 ```bash
 npm install
 ```
@@ -62,16 +71,26 @@ This installs:
 - Frontend dependencies
 - Development tooling
 
-5️⃣ **Run the application**
+4️⃣ **Run the application**
+
+**Quick start (Recommended):**
+```bash
+./start.sh
+```
+This script automatically starts both backend and frontend with proper health checks and cleanup.
+
+**Manual startup:**
+```bash
+# Terminal 1: Start Python backend
+python backend/server.py
+
+# Terminal 2: Start Electron frontend (wait for backend to be ready)
+npm start
+```
 
 **Development mode:**
 ```bash
 npm run dev
-```
-
-**Production mode:**
-```bash
-npm start
 ```
 
 **Backend runs on:** `http://127.0.0.1:5001`
@@ -80,6 +99,54 @@ npm start
 > If you see a "port already in use" error:
 > - Disable AirPlay Receiver in **System Settings → General → AirDrop & Handoff**
 > - Or the app will automatically fall back to port 5001
+
+## Start Script
+
+The included `start.sh` script provides a convenient way to launch the application with proper process management and health checks.
+
+### Features
+
+- **Automatic startup**: Starts both Python backend and Electron frontend
+- **Health checks**: Waits for backend to be ready before launching frontend
+- **Error handling**: Validates Python and Node.js installations
+- **Clean shutdown**: Properly terminates both processes on Ctrl+C
+- **Status monitoring**: Shows startup progress and process IDs
+
+### Usage
+
+```bash
+# Make script executable (first time only)
+chmod +x start.sh
+
+# Start the application
+./start.sh
+```
+
+### What it does
+
+1. **Validates environment**: Checks for Python, Node.js, and npm
+2. **Starts backend**: Launches Python Flask server in background
+3. **Health check**: Waits for backend API to be ready (max 30 seconds)
+4. **Starts frontend**: Launches Electron application
+5. **Process monitoring**: Tracks both processes and handles cleanup
+
+### Output example
+
+```
+🚀 Starting TUM Live Downloader...
+🐍 Starting Python backend...
+✅ Python backend started (PID: 12345)
+🌐 Waiting for backend to be ready...
+✅ Backend is ready!
+⚡ Starting Electron frontend...
+✅ Electron frontend started (PID: 12346)
+
+🎉 TUM Live Downloader is now running!
+📱 The application window should open automatically
+🌐 Backend API: http://127.0.0.1:5001
+
+Press Ctrl+C to stop both services
+```
 
 ## Configuration
 

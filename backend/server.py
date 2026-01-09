@@ -16,12 +16,84 @@ from datetime import datetime
 import signal
 import psutil
 import shutil
+import atexit
+
+import signal
+import psutil
+import shutil
+import atexit
 
 app = Flask(__name__)
 CORS(app)
 
 # Shared cancellation flag that all processes can access
 cancellation_flag = Value('i', 0)  # 0 = not cancelled, 1 = cancelled
+
+def emergency_shutdown():
+    """Emergency shutdown - kill everything immediately"""
+    print("\n" + "="*60)
+    print("EMERGENCY SHUTDOWN INITIATED")
+    print("="*60)
+    
+    try:
+        # Set cancellation flag immediately
+        cancellation_flag.value = 1
+        
+        # Kill all download processes immediately
+        kill_all_python_download_processes()
+        kill_all_download_processes()
+        
+        # Clean up resources
+        cleanup_semaphore()
+        
+        # Only clean up temp files if we're actually shutting down
+        # Check if this is a real shutdown vs normal operation
+        import sys
+        if hasattr(sys, '_getframe'):
+            frame = sys._getframe(1)
+            caller = frame.f_code.co_name
+            # Only do aggressive cleanup if called from signal handler or main
+            if caller in ['signal_handler', '<module>', 'main']:
+                aggressive_cleanup()
+                downloader.cleanup_all_temp_files()
+        
+        print("Emergency shutdown completed")
+        
+    except Exception as e:
+        print(f"Error during emergency shutdown: {e}")
+    
+    # Force exit
+    os._exit(0)
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals (SIGINT, SIGTERM)"""
+    signal_names = {
+        signal.SIGINT: "SIGINT (Ctrl+C)",
+        signal.SIGTERM: "SIGTERM (Termination)"
+    }
+    
+    signal_name = signal_names.get(signum, f"Signal {signum}")
+    print(f"\nReceived {signal_name} - Initiating graceful shutdown...")
+    
+    emergency_shutdown()
+
+def setup_signal_handlers():
+    """Set up signal handlers for graceful shutdown"""
+    try:
+        # Handle Ctrl+C and termination signals
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+        
+        # DON'T register atexit handler - it causes problems during normal operation
+        # atexit.register(emergency_shutdown)
+        
+        print("Signal handlers registered for graceful shutdown")
+        
+    except Exception as e:
+        print(f"Warning: Could not set up signal handlers: {e}")
+
+# Set up signal handlers immediately
+setup_signal_handlers()
 
 def load_config_file():
     """Load configuration from config file"""
@@ -55,14 +127,31 @@ def parse_destination_folder(cfg) -> Path:
     return destination_folder_path
 
 def parse_tmp_folder(cfg) -> Path:
-    """Parse and create temporary folder from config"""
+    """Parse and create temporary folder from config - use more stable location"""
     tmp_directory = None
     if 'Temp-Dir' in cfg:
         tmp_directory = Path(cfg['Temp-Dir'])
     if not tmp_directory:
+        # Use a more stable location instead of system temp
+        # Try user's home directory first, fallback to system temp
+        try:
+            tmp_directory = Path.home() / ".tum_video_scraper_temp"
+        except:
+            tmp_directory = Path(tempfile.gettempdir(), "tum_video_scraper")
+    
+    # Ensure directory exists and is writable
+    try:
+        tmp_directory.mkdir(parents=True, exist_ok=True)
+        # Test write access
+        test_file = tmp_directory / "test_write.tmp"
+        test_file.touch()
+        test_file.unlink()
+    except Exception as e:
+        print(f"Warning: Cannot use temp directory {tmp_directory}: {e}")
+        # Fallback to system temp
         tmp_directory = Path(tempfile.gettempdir(), "tum_video_scraper")
-    if not os.path.isdir(tmp_directory):
-        tmp_directory.mkdir(exist_ok=True)
+        tmp_directory.mkdir(parents=True, exist_ok=True)
+    
     return tmp_directory
 
 def parse_maximum_parallel_downloads(cfg) -> int:
@@ -88,6 +177,11 @@ active_download_processes = []  # Track active download processes for cancellati
 download_thread_active = None  # Track the main download thread
 current_download_semaphore = None  # Track current semaphore for cleanup
 download_cancelled = False  # Flag to prevent new processes during cancellation
+
+# Simple progress tracking - just count completed lectures
+total_lectures_to_download = 0
+completed_lectures_count = 0
+lecture_completion_status = {}  # filename -> True/False
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -216,6 +310,7 @@ def get_course_lectures(course_name):
 def reset_download_state():
     """Reset all download-related global state variables"""
     global download_status, lecture_progress, active_download_processes, download_thread_active, current_download_semaphore, download_cancelled, cancellation_flag
+    global total_lectures_to_download, completed_lectures_count, lecture_completion_status
     
     print("Resetting all download states...")
     
@@ -235,6 +330,11 @@ def reset_download_state():
     # Reset cancellation flags
     download_cancelled = False
     cancellation_flag.value = 0  # Reset shared flag
+    
+    # Reset simple progress counters
+    total_lectures_to_download = 0
+    completed_lectures_count = 0
+    lecture_completion_status.clear()
     
     # Clear downloader progress data
     downloader.clear_progress_data()
@@ -270,31 +370,34 @@ def start_download():
     # Start download in background thread
     def download_thread():
         global download_status, download_cancelled, lecture_progress, active_download_processes, current_download_semaphore
+        global total_lectures_to_download, completed_lectures_count, lecture_completion_status
         
         try:
             # IMPORTANT: Reset all states at the beginning of new download
-            download_cancelled = False  # Reset cancellation flag
-            lecture_progress.clear()  # Clear any old progress data
-            active_download_processes.clear()  # Clear old process tracking
-            current_download_semaphore = None  # Clear old semaphore reference
-            downloader.clear_progress_data()  # Clear downloader progress data
+            download_cancelled = False
+            lecture_progress.clear()
+            active_download_processes.clear()
+            current_download_semaphore = None
+            downloader.clear_progress_data()
+            lecture_completion_status.clear()
+            completed_lectures_count = 0
             
             download_status = {"status": "downloading", "message": "Preparing downloads...", "progress": 0}
             
-            # PHASE 1: Fetch all playlist URLs first (before showing any queued downloads)
+            # PHASE 1: Fetch all playlist URLs first (0-20% progress)
             print("=== PHASE 1: FETCHING PLAYLIST URLs ===")
             all_playlists = {}
             total_stream_types = len(lectures_by_stream_type)
             current_stream = 0
-            total_lectures = sum(len(lectures) for lectures in lectures_by_stream_type.values())
             
             # Fetch URLs for each stream type
             for stream_type, lectures_dict in lectures_by_stream_type.items():
                 current_stream += 1
+                progress = int((current_stream / total_stream_types) * 20)  # 0-20% for URL fetching
                 download_status = {
                     "status": "downloading",
                     "message": f"Fetching playlist URLs for {stream_type}... ({current_stream}/{total_stream_types})",
-                    "progress": int((current_stream / total_stream_types) * 20)  # First 20% for URL fetching
+                    "progress": progress
                 }
                 
                 print(f"Fetching URLs for {stream_type}...")
@@ -315,31 +418,57 @@ def start_download():
                 else:
                     print(f"No playlists found for {course_name} in {stream_type}")
             
-            print("=== PHASE 2: INITIALIZING DOWNLOADS ===")
+            # NOW calculate the correct total from actual playlists
+            total_lectures_to_download = sum(len(playlist) for playlist in all_playlists.values())
+            print(f"TOTAL LECTURES TO DOWNLOAD: {total_lectures_to_download}")
+            
+            print("=== PHASE 2: STARTING DOWNLOADS ===")
             
             # Update status after URL fetching is complete
             download_status = {
                 "status": "downloading",
-                "message": "All URLs fetched, initializing downloads...",
+                "message": "All URLs fetched, starting downloads...",
                 "progress": 20
             }
             
             # Create one semaphore for all downloads
             download_semaphore = Semaphore(max_parallel_downloads)
-            current_download_semaphore = download_semaphore  # Track for cleanup
-            
-            # Clear any existing progress data before starting
-            downloader.clear_progress_data()
-            lecture_progress.clear()
-            
-            # PHASE 3: Start all downloads and initialize progress tracking
-            all_processes = []
+            current_download_semaphore = download_semaphore
             
             # Create the course output folder first
             course_output_path = Path(output_dir) / course_name
             course_output_path.mkdir(parents=True, exist_ok=True)
             
+            # Initialize completion tracking for all lectures
+            for stream_type, modified_playlist in all_playlists.items():
+                for title, _ in modified_playlist:
+                    # Apply the same filename sanitization as the downloader
+                    sanitized_filename = re.sub('[\\\\/:*?"<>|]|[\x00-\x20]', '_', title) + ".mp4"
+                    lecture_completion_status[sanitized_filename] = False
+                    
+                    # Initialize progress display
+                    display_name = sanitized_filename.replace('.mp4', '')
+                    lecture_progress[display_name] = {
+                        "name": display_name,
+                        "progress": 0,
+                        "current": 0,
+                        "total": 100,
+                        "rate": 0,
+                        "status": "queued",
+                        "message": "Queued for download..."
+                    }
+            
+            print(f"Initialized tracking for {len(lecture_completion_status)} lectures")
+            
+            # Update status to show queued lectures immediately
+            download_status = {
+                "status": "downloading",
+                "message": f"{len(lecture_completion_status)} queued • 0/{total_lectures_to_download} total",
+                "progress": 20
+            }
+            
             # Start downloads for each stream type
+            all_processes = []
             for stream_type, modified_playlist in all_playlists.items():
                 print(f"Starting downloads for {stream_type} ({len(modified_playlist)} files)")
                 
@@ -352,38 +481,17 @@ def start_download():
                     cancellation_flag         # shared cancellation flag
                 )
                 all_processes.extend(processes)
-                active_download_processes.extend(processes)  # Track for cancellation
-                
-                # Initialize progress for all lectures AFTER downloader clears progress
-                for title, _ in modified_playlist:
-                    # Apply the same filename sanitization as the downloader
-                    sanitized_filename = re.sub('[\\\\/:*?"<>|]|[\x00-\x20]', '_', title) + ".mp4"
-                    display_name = sanitized_filename.replace('.mp4', '')
-                    
-                    lecture_progress[display_name] = {
-                        "name": display_name,
-                        "progress": 0,
-                        "current": 0,
-                        "total": 1,
-                        "rate": 0,
-                        "status": "queued",
-                        "message": "Queued for download..."
-                    }
-                    
-                    print(f"Initialized progress for: {display_name}")
+                active_download_processes.extend(processes)
+                print(f"Started {len(processes)} processes for {stream_type}")
             
-            # Small delay to ensure all processes are started
-            time.sleep(2)
+            print(f"TOTAL PROCESSES STARTED: {len(all_processes)}")
+            print(f"MAX PARALLEL DOWNLOADS: {max_parallel_downloads}")
+            print(f"SEMAPHORE VALUE: {download_semaphore._value if hasattr(download_semaphore, '_value') else 'unknown'}")
             
-            # Monitor download progress (remaining 80% progress)
-            download_status = {"status": "downloading", "message": "Downloads started, monitoring progress...", "progress": 25}
+            # Monitor download progress (20-100% progress)
+            print("=== PHASE 3: MONITORING PROGRESS ===")
             
-            completed_lectures = 0
-            error_log_path = Path(output_dir) / "download_errors.log"
-            
-            # Monitor processes and get real progress
             while all_processes and not download_cancelled:
-                # Check if download was cancelled
                 if download_cancelled:
                     print("Download cancellation detected in monitoring loop")
                     break
@@ -391,22 +499,15 @@ def start_download():
                 # Get real progress data from downloader
                 real_progress = downloader.get_progress_data()
                 
-                print(f"Real progress data keys: {list(real_progress.keys())}")
-                print(f"Lecture progress keys: {list(lecture_progress.keys())}")
-                
-                # Update lecture progress with real data and track queued lectures
+                # Update individual lecture progress and count completions
                 active_downloads = 0
                 queued_downloads = 0
-                completed_count = 0
                 
-                # DON'T clear lecture_progress - we want to keep queued entries
-                # Just update existing entries with real progress data
+                # Update progress for lectures that have real progress data
                 for filename, progress_data in real_progress.items():
                     display_name = filename.replace('.mp4', '')
                     
-                    print(f"Updating progress for: {display_name} -> {progress_data['percentage']}% ({progress_data['status']})")
-                    
-                    # Update existing entry or create new one
+                    # Update lecture progress display
                     lecture_progress[display_name] = {
                         "name": display_name,
                         "progress": progress_data['percentage'],
@@ -417,84 +518,79 @@ def start_download():
                         "message": f"{progress_data['current']}/{progress_data['total']} segments ({progress_data['rate']:.1f} seg/s)" if progress_data['rate'] > 0 else f"{progress_data['current']}/{progress_data['total']} segments"
                     }
                     
-                    # Count by status
+                    # Count by status and mark completed lectures ONCE
                     if progress_data['status'] == 'downloading':
                         active_downloads += 1
                     elif progress_data['status'] == 'completed':
-                        completed_count += 1
+                        # Only increment if not already marked as completed
+                        if not lecture_completion_status.get(filename, False):
+                            lecture_completion_status[filename] = True
+                            completed_lectures_count += 1
+                            print(f"LECTURE COMPLETED: {filename} (total now: {completed_lectures_count})")
                 
-                # Count running processes to determine queued vs active
-                running_processes = sum(1 for p in all_processes if p.is_alive())
-                
-                # Update status for lectures that are still queued (not in real_progress)
+                # Count lectures that are still queued (not in real_progress)
                 for lecture_name, lecture_data in lecture_progress.items():
-                    if lecture_name not in [fname.replace('.mp4', '') for fname in real_progress.keys()]:
-                        # This lecture hasn't started downloading yet
+                    filename_with_ext = lecture_name + ".mp4"
+                    if filename_with_ext not in real_progress:
                         if lecture_data['status'] == 'queued':
                             queued_downloads += 1
-                            lecture_progress[lecture_name]['message'] = f"Queued (Position: {queued_downloads})"
+                            lecture_progress[lecture_name]['message'] = f"Queued for download..."
                 
-                # Check which processes have finished (but don't count them as completed lectures yet)
+                # Remove finished processes
                 finished_processes = []
                 for i, process in enumerate(all_processes):
                     if not process.is_alive():
                         finished_processes.append(i)
-                        
-                        # Check for process errors and log them
-                        if process.exitcode != 0:
-                            error_msg = f"Process failed with exit code {process.exitcode} for lecture {i}"
-                            try:
-                                with open(error_log_path, 'a', encoding='utf-8') as f:
-                                    f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {error_msg}\n")
-                            except Exception as log_error:
-                                print(f"Failed to write error log: {log_error}")
                 
-                # Remove finished processes
                 for i in reversed(finished_processes):
                     all_processes.pop(i)
                 
-                # Calculate overall progress based on completed lectures (not average progress)
-                if total_lectures > 0:
-                    # Progress is based on completed lectures out of total lectures
-                    completion_ratio = completed_count / total_lectures
-                    progress = 25 + int(completion_ratio * 75)  # Use remaining 75% for actual downloads
+                # Calculate simple, reliable overall progress
+                if total_lectures_to_download > 0:
+                    # SIMPLE FORMULA: 20% + (completed * 80 / total)
+                    progress_increment = 80 / total_lectures_to_download  # Each lecture is worth this much
+                    progress = 20 + int(completed_lectures_count * progress_increment)
                     
-                    # Create detailed status message
+                    print(f"SIMPLE PROGRESS: {completed_lectures_count}/{total_lectures_to_download} completed = {progress}%")
+                    print(f"Each lecture worth: {progress_increment:.1f}%")
+                    
+                    # Create status message
                     status_parts = []
                     if active_downloads > 0:
                         status_parts.append(f"{active_downloads} downloading")
                     if queued_downloads > 0:
                         status_parts.append(f"{queued_downloads} queued")
-                    if completed_count > 0:
-                        status_parts.append(f"{completed_count} completed")
+                    if completed_lectures_count > 0:
+                        status_parts.append(f"{completed_lectures_count} completed")
                     
-                    status_message = f"{', '.join(status_parts)} • {completed_count}/{total_lectures} total"
+                    status_message = f"{', '.join(status_parts)} • {completed_lectures_count}/{total_lectures_to_download} total"
                     
                     download_status = {
                         "status": "downloading", 
                         "message": status_message, 
-                        "progress": progress  # Don't cap at 99% - let it reach 100% when all are done
+                        "progress": progress
                     }
                 
-                # Wait a bit before checking again - reduced for more responsive updates
-                time.sleep(1)  # Check every 1 second for more responsive updates
+                # Wait before checking again
+                time.sleep(1)
             
-            # Clear lecture progress when done
+            # Download completed
             lecture_progress.clear()
-            active_download_processes.clear()  # Clear tracked processes
-            current_download_semaphore = None  # Clear semaphore reference
-            download_thread_active = None  # Clear thread reference
-            download_cancelled = False  # Reset cancellation flag
-            download_status = {"status": "completed", "message": f"All {total_lectures} lectures downloaded successfully!", "progress": 100}
+            active_download_processes.clear()
+            current_download_semaphore = None
+            download_thread_active = None
+            download_cancelled = False
+            
+            download_status = {"status": "completed", "message": f"All {completed_lectures_count} lectures downloaded successfully!", "progress": 100}
             
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             print(f"Download error: {error_details}")
-            active_download_processes.clear()  # Clear tracked processes on error
-            current_download_semaphore = None  # Clear semaphore reference
-            download_thread_active = None  # Clear thread reference
-            download_cancelled = False  # Reset cancellation flag
+            active_download_processes.clear()
+            current_download_semaphore = None
+            download_thread_active = None
+            download_cancelled = False
             download_status = {"status": "error", "message": f"Download failed: {str(e)}", "progress": 0}
     
     download_thread_active = threading.Thread(target=download_thread, daemon=True)
@@ -794,15 +890,15 @@ def cleanup_semaphore():
         print(f"Could not check system semaphores: {e}")
 
 def aggressive_cleanup():
-    """Aggressively clean up all temporary files and lock files"""
-    print("Starting aggressive cleanup...")
+    """Clean up temporary files and lock files - but preserve active downloads"""
+    print("Starting selective cleanup...")
     
     try:
         config = load_config_file()
         output_dir = parse_destination_folder(config)
         tmp_dir = parse_tmp_folder(config)
         
-        # 1. Remove all .lock files
+        # 1. Remove all .lock files (these are safe to remove)
         print("Removing lock files...")
         for lock_file in output_dir.rglob("*.lock"):
             try:
@@ -811,18 +907,22 @@ def aggressive_cleanup():
             except Exception as e:
                 print(f"Failed to remove lock file {lock_file}: {e}")
         
-        # 2. Remove all temporary download folders
-        print("Removing temporary download folders...")
-        if tmp_dir.exists():
-            for item in tmp_dir.iterdir():
-                if item.is_dir() and ('_ts' in item.name or 'tum_video_scraper' in item.name):
-                    try:
-                        shutil.rmtree(item)
-                        print(f"Removed temp folder: {item}")
-                    except Exception as e:
-                        print(f"Failed to remove temp folder {item}: {e}")
+        # 2. Only remove temp folders if downloads are actually cancelled
+        global download_cancelled, cancellation_flag
+        if download_cancelled or cancellation_flag.value == 1:
+            print("Downloads cancelled - removing temporary download folders...")
+            if tmp_dir.exists():
+                for item in tmp_dir.iterdir():
+                    if item.is_dir() and ('_ts' in item.name or 'tum_video_scraper' in item.name):
+                        try:
+                            shutil.rmtree(item)
+                            print(f"Removed temp folder: {item}")
+                        except Exception as e:
+                            print(f"Failed to remove temp folder {item}: {e}")
+        else:
+            print("Downloads still active - preserving temp folders")
         
-        # 3. Remove progress files
+        # 3. Remove progress files (safe to remove)
         print("Removing progress files...")
         progress_files = [
             Path(tempfile.gettempdir()) / "tum_download_progress.json",
@@ -837,24 +937,26 @@ def aggressive_cleanup():
             except Exception as e:
                 print(f"Failed to remove progress file {progress_file}: {e}")
         
-        # 4. Use downloader's cleanup function
-        print("Running downloader cleanup...")
-        downloader.cleanup_all_temp_files()
+        # 4. Only use downloader's cleanup if downloads are cancelled
+        if download_cancelled or cancellation_flag.value == 1:
+            print("Running downloader cleanup...")
+            downloader.cleanup_all_temp_files()
         
-        # 5. Remove any partial downloads (files without corresponding .mp4)
-        print("Removing partial downloads...")
-        for output_folder in output_dir.iterdir():
-            if output_folder.is_dir():
-                for file in output_folder.iterdir():
-                    if file.is_file() and not file.name.endswith('.mp4') and not file.name.endswith('.lock'):
-                        try:
-                            file.unlink()
-                            print(f"Removed partial file: {file}")
-                        except Exception as e:
-                            print(f"Failed to remove partial file {file}: {e}")
+        # 5. Remove any partial downloads (files without corresponding .mp4) - only if cancelled
+        if download_cancelled or cancellation_flag.value == 1:
+            print("Removing partial downloads...")
+            for output_folder in output_dir.iterdir():
+                if output_folder.is_dir():
+                    for file in output_folder.iterdir():
+                        if file.is_file() and not file.name.endswith('.mp4') and not file.name.endswith('.lock'):
+                            try:
+                                file.unlink()
+                                print(f"Removed partial file: {file}")
+                            except Exception as e:
+                                print(f"Failed to remove partial file {file}: {e}")
                             
     except Exception as e:
-        print(f"Error during aggressive cleanup: {e}")
+        print(f"Error during selective cleanup: {e}")
 
 def final_lock_cleanup():
     """Final pass to remove any lock files that might have been recreated"""
@@ -1031,5 +1133,20 @@ def logout():
     return jsonify({"success": True})
 
 if __name__ == '__main__':
-    print("Starting TUM Live Downloader backend...")
-    app.run(host='127.0.0.1', port=5001, debug=False)
+    try:
+        print("Starting TUM Live Downloader backend...")
+        print("Backend will be available at: http://127.0.0.1:5001")
+        print("Press Ctrl+C to stop")
+        print("-" * 50)
+        
+        # Run the Flask app
+        app.run(host='127.0.0.1', port=5001, debug=False, use_reloader=False)
+        
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt received")
+        emergency_shutdown()
+    except Exception as e:
+        print(f"\n💥 Server error: {e}")
+        emergency_shutdown()
+    finally:
+        print("🔚 Backend server stopped")

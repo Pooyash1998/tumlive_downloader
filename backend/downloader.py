@@ -24,7 +24,7 @@ def log(msg: str):
 PROGRESS_FILE = Path(tempfile.gettempdir()) / "tum_download_progress.json"
 
 def update_progress(filename: str, current: int, total: int, rate: float = 0):
-    """Update progress for a specific file using file-based storage"""
+    """Update progress for a specific file using file-based storage - SIMPLE VERSION"""
     try:
         # Read existing progress
         progress_data = {}
@@ -35,29 +35,35 @@ def update_progress(filename: str, current: int, total: int, rate: float = 0):
             except:
                 progress_data = {}
         
-        # Determine status based on progress
-        if current == 0 and total == 1:
-            status = 'starting'
-        elif current == 0 and total > 1:
-            status = 'downloading'
-        elif current < total:
-            status = 'downloading'
-        else:
+        # Simple status determination
+        if current >= total and total > 0:
             status = 'completed'
+            percentage = 100
+        elif current > 0:
+            status = 'downloading'
+            percentage = min(100, int((current / total) * 100)) if total > 0 else 0
+        else:
+            status = 'starting'
+            percentage = 0
         
         # Update progress for this file
         progress_data[filename] = {
             'current': current,
             'total': total,
-            'percentage': int((current / total) * 100) if total > 0 else 0,
-            'rate': round(rate, 1),  # Round rate for cleaner display
+            'percentage': percentage,
+            'rate': round(rate, 1),
             'status': status,
-            'last_update': time.time()  # Track when this was last updated
+            'last_update': time.time()
         }
         
-        # Write back to file
-        with open(PROGRESS_FILE, 'w') as f:
+        # Write back to file atomically
+        temp_file = PROGRESS_FILE.with_suffix('.tmp')
+        with open(temp_file, 'w') as f:
             json.dump(progress_data, f)
+        temp_file.replace(PROGRESS_FILE)
+        
+        print(f"Progress update: {filename} -> {percentage}% ({status})")
+        
     except Exception as e:
         print(f"Error updating progress: {e}")
 
@@ -112,7 +118,7 @@ def download_list_of_videos(videos: list[tuple[str, str]],
             Path(output_file_path.as_posix() + ".lock").touch()  # Create lock file
             
             # Initialize progress for this file
-            update_progress(filename, 0, 1, 0)
+            update_progress(filename, 0, 100, 0)  # Start with 0/100
             
             print(f"Starting download process for: {filename}")
             
@@ -122,28 +128,33 @@ def download_list_of_videos(videos: list[tuple[str, str]],
                                           semaphore, cancellation_flag))
             child_process.start()
             child_process_list.append(child_process)
+            print(f"Process started for {filename} with PID: {child_process.pid}")
+        else:
+            print(f"Skipping {filename} - already exists or locked")
     return child_process_list
 
 def download(filename: str, playlist_url: str,
              output_file_path: Path, tmp_directory: Path,
              semaphore: Semaphore, cancellation_flag):
     
-    print(f"Download of {filename} started")
+    print(f"Download of {filename} started - attempting to acquire semaphore...")
     
     # Check shared cancellation flag before doing anything
     if cancellation_flag.value == 1:
         print(f"Download cancelled before starting for {filename}")
         return
     
-    # Update status to "starting" before acquiring semaphore
-    update_progress(filename, 0, 1, 0)
+    # Update status to "starting"
+    update_progress(filename, 0, 100, 0)  # Start with 0/100
     
     # Check cancellation flag before acquiring semaphore
     if cancellation_flag.value == 1:
         print(f"Download cancelled before acquiring semaphore for {filename}")
         return
     
+    print(f"Acquiring semaphore for {filename}...")
     semaphore.acquire()  # Acquire lock
+    print(f"Semaphore acquired for {filename} - starting download")
     
     # Check cancellation flag after acquiring semaphore
     if cancellation_flag.value == 1:
@@ -154,7 +165,7 @@ def download(filename: str, playlist_url: str,
     download_start_time = time.time()  #Track download time
     
     # Update status to "downloading" after acquiring semaphore
-    update_progress(filename, 0, 100, 0)  # Initialize with proper total
+    update_progress(filename, 1, 100, 0)  # Show 1% to indicate download started
     
     # Create error log path in the same directory as output
     error_log_path = output_file_path.parent / "download_errors.log"
@@ -173,12 +184,27 @@ def download(filename: str, playlist_url: str,
         ts_urls = [urljoin(playlist_url, seg.uri) if not seg.uri.startswith("http") else seg.uri
                    for seg in playlist.segments]
         ts_folder = Path(tmp_directory, f"{filename}_ts")
+        
+        # Ensure temp folder exists and is stable
         ts_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Test write access to temp folder
+        test_file = ts_folder / "test_access.tmp"
+        try:
+            test_file.touch()
+            test_file.unlink()
+        except Exception as e:
+            error_msg = f"Cannot write to temp directory {ts_folder}: {e}"
+            print(error_msg, file=sys.stderr)
+            log_error(error_msg)
+            update_progress(filename, 0, 100, 0)
+            semaphore.release()
+            return
 
         # Initialize progress tracking
         total_segments = len(ts_urls)
         completed_segments = 0
-        update_progress(filename, 0, total_segments, 0)
+        # Don't update progress here - we'll update it based on segment completion
 
         lock = Lock()
         # Progress bar for each Lecture
@@ -193,14 +219,25 @@ def download(filename: str, playlist_url: str,
                 return None
             
             ts_path = ts_folder / f"{index:05d}.ts"
+            
+            # Check if temp folder still exists, recreate if needed
+            if not ts_folder.exists():
+                print(f"Temp folder disappeared, recreating: {ts_folder}")
+                try:
+                    ts_folder.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    print(f"Failed to recreate temp folder: {e}")
+                    return None
+            
             if ts_path.exists():
                 with lock:
                     pbar.update(1)
                     completed_segments += 1
-                    # Calculate rate based on recent progress (more responsive)
+                    # Calculate progress as percentage and update
                     elapsed = time.time() - download_start_time
                     rate = completed_segments / elapsed if elapsed > 0 else 0
-                    update_progress(filename, completed_segments, total_segments, rate)
+                    progress_percentage = int((completed_segments / total_segments) * 100) if total_segments > 0 else 0
+                    update_progress(filename, progress_percentage, 100, rate)
                 return ts_path # Skip download if file already exists
             
             max_retries = 5
@@ -211,28 +248,69 @@ def download(filename: str, playlist_url: str,
                     return None
                     
                 try:
+                    # Ensure parent directory exists before every download attempt
+                    ts_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Verify directory exists and is writable
+                    if not ts_path.parent.exists():
+                        raise Exception(f"Cannot create temp directory: {ts_path.parent}")
+                    
                     r = requests.get(ts_url, stream=True, timeout=15)
                     r.raise_for_status()
-                    with open(ts_path, "wb") as f:
+                    
+                    # Write to temporary file first, then rename (atomic operation)
+                    temp_path = ts_path.with_suffix('.tmp')
+                    
+                    # Ensure temp file directory still exists
+                    temp_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    with open(temp_path, "wb") as f:
                         for chunk in r.iter_content(1024*1024):
                             # Check for cancellation during chunk download
                             if cancellation_flag.value == 1:
                                 print(f"Download cancelled during chunk download for {filename}")
+                                # Clean up temp file
+                                try:
+                                    temp_path.unlink()
+                                except:
+                                    pass
                                 return None
                             if chunk:
                                 f.write(chunk)
+                    
+                    # Verify temp file was written successfully
+                    if not temp_path.exists() or temp_path.stat().st_size == 0:
+                        raise Exception(f"Temp file not written properly: {temp_path}")
+                    
+                    # Atomic rename to final location
+                    temp_path.rename(ts_path)
+                    
+                    # Verify final file exists
+                    if not ts_path.exists():
+                        raise Exception(f"Final file not created: {ts_path}")
+                    
                     with lock:
                         pbar.update(1)
                         completed_segments += 1
-                        # Calculate rate based on recent progress (more responsive)
+                        # Calculate progress as percentage and update
                         elapsed = time.time() - download_start_time
                         rate = completed_segments / elapsed if elapsed > 0 else 0
-                        update_progress(filename, completed_segments, total_segments, rate)
+                        progress_percentage = int((completed_segments / total_segments) * 100) if total_segments > 0 else 0
+                        update_progress(filename, progress_percentage, 100, rate)
                     return ts_path # Success -> Exit loop
                 
                 except Exception as e:
                     error_msg = f"[Retry {attempt + 1}/{max_retries}] Failed to download segment {ts_url}: {e}"
                     print(error_msg, file=sys.stderr)
+                    
+                    # Clean up any partial temp file
+                    try:
+                        temp_path = ts_path.with_suffix('.tmp')
+                        if temp_path.exists():
+                            temp_path.unlink()
+                    except:
+                        pass
+                    
                     if attempt == max_retries - 1:  # Last attempt failed
                         log_error(f"Segment {index} failed after {max_retries} attempts: {e}")
                     time.sleep(2 ** attempt)  # Exponential backoff
@@ -252,7 +330,7 @@ def download(filename: str, playlist_url: str,
         error_msg = f"Failed to download segments: {e}"
         print(error_msg, file=sys.stderr)
         log_error(error_msg)
-        update_progress(filename, 0, 1, 0)  # Reset progress on error
+        update_progress(filename, 0, 100, 0)  # Reset progress on error
         semaphore.release()
         return
     
@@ -295,7 +373,7 @@ def download(filename: str, playlist_url: str,
     f"({len(segment_paths)} segments)")
     
     # Mark as completed in progress tracking
-    update_progress(filename, total_segments, total_segments, 0)
+    update_progress(filename, 100, 100, 0)  # 100% completed
     
     shutil.copy2(temporary_file_path, output_file_path)  # Copy original file to output location    
     print(f"Completed {filename} after {(time.time() - download_start_time):.0f}s")

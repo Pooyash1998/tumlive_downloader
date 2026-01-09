@@ -819,10 +819,10 @@ async function pollDownloadStatusDialog() {
                 document.querySelector('.minimized-status-text').textContent = overall.message;
             }
             
-            // Only show individual lecture progress after URL fetching is complete (progress > 20%)
-            if (overall.progress > 20 && Object.keys(lectures).length > 0) {
+            // Show individual lecture progress after URL fetching starts (progress >= 20%)
+            if (overall.progress >= 20 && Object.keys(lectures).length > 0) {
                 updateLectureProgress(lectures);
-            } else if (overall.progress <= 20) {
+            } else if (overall.progress < 20) {
                 // During URL fetching phase, show a message instead of empty progress
                 const logsContainer = document.getElementById('downloadLogs');
                 logsContainer.innerHTML = `
