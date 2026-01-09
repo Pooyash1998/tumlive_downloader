@@ -100,54 +100,6 @@ npm run dev
 > - Disable AirPlay Receiver in **System Settings → General → AirDrop & Handoff**
 > - Or the app will automatically fall back to port 5001
 
-## Start Script
-
-The included `start.sh` script provides a convenient way to launch the application with proper process management and health checks.
-
-### Features
-
-- **Automatic startup**: Starts both Python backend and Electron frontend
-- **Health checks**: Waits for backend to be ready before launching frontend
-- **Error handling**: Validates Python and Node.js installations
-- **Clean shutdown**: Properly terminates both processes on Ctrl+C
-- **Status monitoring**: Shows startup progress and process IDs
-
-### Usage
-
-```bash
-# Make script executable (first time only)
-chmod +x start.sh
-
-# Start the application
-./start.sh
-```
-
-### What it does
-
-1. **Validates environment**: Checks for Python, Node.js, and npm
-2. **Starts backend**: Launches Python Flask server in background
-3. **Health check**: Waits for backend API to be ready (max 30 seconds)
-4. **Starts frontend**: Launches Electron application
-5. **Process monitoring**: Tracks both processes and handles cleanup
-
-### Output example
-
-```
-🚀 Starting TUM Live Downloader...
-🐍 Starting Python backend...
-✅ Python backend started (PID: 12345)
-🌐 Waiting for backend to be ready...
-✅ Backend is ready!
-⚡ Starting Electron frontend...
-✅ Electron frontend started (PID: 12346)
-
-🎉 TUM Live Downloader is now running!
-📱 The application window should open automatically
-🌐 Backend API: http://127.0.0.1:5001
-
-Press Ctrl+C to stop both services
-```
-
 ## Configuration
 
 Create a `config.yml` file in the root directory using the given `example_config.yml`:
